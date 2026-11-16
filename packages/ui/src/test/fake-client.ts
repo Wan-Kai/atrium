@@ -571,7 +571,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     async clearAttention(sessionId: string) {
       calls.push(`clearAttention ${sessionId}`);
       change(sessionId, (one) => ({
-        attention: one.attention === null ? null : { ...one.attention, cleared: one.attention.reason === "error" },
+        attention: one.attention === null ? null : { ...one.attention, cleared: one.attention.reason !== "auth" },
       }));
       return {};
     },

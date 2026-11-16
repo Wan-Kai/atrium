@@ -1,0 +1,97 @@
+[
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "event.type === \"run_settled\" && event.outcome === \"completed\" && askingSince(sessionId) === null",
+    "to": "event.type === \"run_settled\" && event.outcome === \"failed\" && askingSince(sessionId) === null",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "marks a run that completed as finished"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "(attention?.reason === \"error\" || attention?.reason === \"finished\") && !attention.cleared",
+    "to": "attention?.reason === \"error\" && !attention.cleared",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "marks a run that completed as finished"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "event.outcome === \"completed\" && askingSince(sessionId) === null",
+    "to": "event.outcome === \"completed\" && true",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "does not mark a run finished while a dialog waits"
+  },
+  {
+    "file": "packages/ui/src/sidebar/status.ts",
+    "from": "return attention?.reason === \"finished\" && !attention.cleared ? \"finished\" : null;",
+    "to": "return null;",
+    "test": "packages/ui/src/sidebar/status.test.ts",
+    "name": "shows a finished run below a run going on, until a look clears it"
+  },
+  {
+    "file": "packages/ui/src/sidebar/status.ts",
+    "from": "session.attention.reason !== \"finished\" &&",
+    "to": "",
+    "test": "packages/ui/src/sidebar/status.test.ts",
+    "name": "collects sessions waiting for an answer"
+  },
+  {
+    "file": "packages/ui/src/children/children.ts",
+    "from": ".filter((status) => status !== \"running\" && status !== \"finished\");",
+    "to": ".filter((status) => status !== \"running\");",
+    "test": "packages/ui/src/children/children.test.ts",
+    "name": "show a descendant's finished run as its row's dot, never on the tab"
+  },
+  {
+    "file": "packages/ui/src/children/child-capsule.tsx",
+    "from": "\"running\", \"finished\"];",
+    "to": "\"running\"];",
+    "test": "packages/ui/src/children/children.browser.test.tsx",
+    "name": "counts the children not archived and their statuses",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/sidebar/status-icon.tsx",
+    "from": "label: \"已完成未读\",",
+    "to": "label: \"已完成\",",
+    "test": "packages/ui/src/app/workbench.browser.test.tsx",
+    "name": "shows each session's highest status on its tab",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/sidebar/sidebar.tsx",
+    "from": "busy: statuses.some((status) => status !== null && status !== \"finished\"),",
+    "to": "busy: statuses.some((status) => status !== null),",
+    "test": "packages/ui/src/app/workbench.browser.test.tsx",
+    "name": "does not lift a chat for a run finished and not seen",
+    "project": "ui"
+  },
+  {
+    "file": "packages/ui/src/app/workbench.tsx",
+    "from": "(attention.reason === \"error\" || attention.reason === \"finished\");",
+    "to": "attention.reason === \"error\";",
+    "test": "packages/ui/src/app/workbench.browser.test.tsx",
+    "name": "marks a finished run seen once its session shows",
+    "project": "ui"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/HomeList.swift",
+    "from": "done ? .finished : nil",
+    "to": "nil",
+    "runner": "swift",
+    "filter": "HomeListTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/HomeList.swift",
+    "from": "attention.reason != .finished",
+    "to": "true",
+    "runner": "swift",
+    "filter": "HomeListTests"
+  },
+  {
+    "file": "apps/ios/AtriumKit/Sources/AtriumSync/SyncCore.swift",
+    "from": "let attention = summary.attention, attention.reason != .auth, !attention.cleared,",
+    "to": "let attention = summary.attention, attention.reason == .error, !attention.cleared,",
+    "runner": "swift",
+    "filter": "SyncControl"
+  }
+]

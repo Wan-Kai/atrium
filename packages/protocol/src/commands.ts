@@ -529,7 +529,7 @@ export const ArchiveSessionCommand = z.strictObject({
 });
 export type ArchiveSessionCommand = z.infer<typeof ArchiveSessionCommand>;
 
-/** Marks a session's error as seen, which takes it out of the inbox (SPEC-0001, "并行、同步与关注"). */
+/** Marks a session's error or finished run as seen, which takes it out of the inbox (SPEC-0001, "并行、同步与关注"). */
 export const ClearAttentionCommand = z.strictObject({
   type: z.literal("clear_attention"),
   ...commandFields,

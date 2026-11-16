@@ -1,10 +1,10 @@
 import type { SessionSummary } from "@atrium/protocol";
 
 /** The status a row shows; `null` for idle, which shows nothing. */
-export type RowStatus = "asking" | "auth" | "error" | "running" | null;
+export type RowStatus = "asking" | "auth" | "error" | "running" | "finished" | null;
 
 /** Statuses from the highest down (SPEC-0001, "会话状态"). */
-const PRIORITY: readonly Exclude<RowStatus, null>[] = ["asking", "auth", "error", "running"];
+const PRIORITY: readonly Exclude<RowStatus, null>[] = ["asking", "auth", "error", "running", "finished"];
 
 /** How many sessions the inbox shows before "还有 N 条". */
 export const INBOX_SHOWN = 3;
@@ -14,7 +14,9 @@ export const INBOX_SHOWN = 3;
  *
  * @remarks
  * Highest first (SPEC-0001, "会话状态"): a question waiting, then a sign-in problem, then an
- * error, which stays until the next run starts even once seen and while the session runs again.
+ * error, which stays until the next run starts even once seen and while the session runs again,
+ * then a run going on, then a run finished and not looked at yet. A finished run's dot goes as
+ * soon as it is seen, so a cleared one shows nothing.
  *
  * @sideEffects none
  * @param session - The session.
@@ -22,8 +24,12 @@ export const INBOX_SHOWN = 3;
  */
 export function sessionStatus(session: Pick<SessionSummary, "asking" | "attention" | "running">): RowStatus {
   if (session.asking !== null) return "asking";
-  if (session.attention !== null) return session.attention.reason;
-  return session.running ? "running" : null;
+  const attention = session.attention;
+  if (attention?.reason === "auth") return "auth";
+  if (attention?.reason === "error") return "error";
+  if (session.running) return "running";
+  // A finished run is nothing to see once it was seen, unlike an error (SPEC-0001, "会话状态").
+  return attention?.reason === "finished" && !attention.cleared ? "finished" : null;
 }
 
 /**
@@ -53,7 +59,7 @@ export interface InboxEntry {
  *
  * @remarks
  * SPEC-0001 ("收件箱"): sessions not archived that wait for an answer or a sign-in, or have an
- * error not seen yet; by priority, then newest first.
+ * error not seen yet; a run finished and not seen is nothing to do, so it stays out.
  *
  * @sideEffects none
  * @param sessions - Every session.
@@ -64,7 +70,11 @@ export function inboxOf(sessions: readonly SessionSummary[]): InboxEntry[] {
   for (const session of sessions) {
     if (session.archived) continue;
     if (session.asking !== null) entries.push({ session, status: "asking", at: session.asking });
-    else if (session.attention !== null && !(session.attention.reason === "error" && session.attention.cleared)) {
+    else if (
+      session.attention !== null &&
+      session.attention.reason !== "finished" &&
+      !(session.attention.reason === "error" && session.attention.cleared)
+    ) {
       entries.push({ session, status: session.attention.reason, at: session.attention.at });
     }
   }

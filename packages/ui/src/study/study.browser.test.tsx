@@ -487,5 +487,19 @@ describe("study mode in the window (SPEC-0008, ML1)", () => {
     index.setState({ sessions: [session({ sessionId: "old", containerId: SQL, name: "讨论 SQL", running: true })] });
     await expect.element(row.getByRole("img", { name: "运行中" })).not.toBeInTheDocument();
     await expect.element(row.getByRole("img", { name: "待回答" })).not.toBeInTheDocument();
+
+    // A run finished and not seen shows its dot here too; archived directions still contribute nothing.
+    index.setState({
+      sessions: [
+        session({ sessionId: "old", containerId: SQL, name: "讨论 SQL", running: true }),
+        session({
+          sessionId: "done",
+          containerId: GO,
+          name: "讨论 Go",
+          attention: { reason: "finished", at: 1, cleared: false, text: null },
+        }),
+      ],
+    });
+    await expect.element(row.getByRole("img", { name: "已完成未读" })).toBeVisible();
   });
 });

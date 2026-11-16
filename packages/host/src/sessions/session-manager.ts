@@ -813,7 +813,9 @@ export function createSessionManager(options: {
    * list shows the session by its first message while that run goes on. A run's end may have
    * written the file, a name or commits in the workspace. A session needs a look from a run that
    * failed after pi's retries, or pi crashing too often, until its next run starts; a failure
-   * whose text looks like a credentials problem asks to sign in (SPEC-0001, "会话状态"). A crash
+   * whose text looks like a credentials problem asks to sign in (SPEC-0001, "会话状态"). A run
+   * that ends normally with no dialog waiting is marked done and unseen, which the client showing
+   * it clears. A crash
    * also ends its run as failed but is not marked until the restarts are used up, so only a turn's
    * own failure marks a run. Once the scan after a run is done, the session may be given a title
    * (`titleSubject`).
@@ -866,6 +868,13 @@ export function createSessionManager(options: {
     } else if (event.type === "run_settled" || event.type === "session_exited") {
       const ran = busy.delete(sessionId);
       const failure = failures.get(sessionId);
+      // Done and not looked at yet: the client that shows the session clears it (SPEC-0001, "会话状态").
+      // A queued message that carries on starts its run right after, which clears it; a list flushed
+      // in between may still carry the dot for a moment.
+      if (ran && event.type === "run_settled" && event.outcome === "completed" && askingSince(sessionId) === null) {
+        if (options.catalog.find(sessionId)?.archived !== true)
+          attend(sessionId, { reason: "finished", at: options.clock.now(), cleared: false, text: null });
+      }
       if (
         event.type === "run_settled" &&
         event.outcome === "failed" &&
@@ -2126,7 +2135,7 @@ export function createSessionManager(options: {
       await options.catalog.ready();
       const { attention } = entryOf(sessionId);
       // A sign-in problem stays until a run starts: only then is it solved.
-      if (attention?.reason === "error" && !attention.cleared) {
+      if ((attention?.reason === "error" || attention?.reason === "finished") && !attention.cleared) {
         await options.catalog.mark(sessionId, { attention: { ...attention, cleared: true } });
       }
       return {};

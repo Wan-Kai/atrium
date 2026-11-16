@@ -40,6 +40,10 @@ function session(sessionId: string, fields: Partial<SessionSummary> = {}): Sessi
 const error = (at: number, cleared = false) => ({ attention: { reason: "error", at, cleared, text: null } as const });
 /** A sign-in problem set at `at`; a look does not clear it, but the list may say so. */
 const auth = (at: number, cleared = false) => ({ attention: { reason: "auth", at, cleared, text: null } as const });
+/** A run finished at `at`; a look clears it, at once. */
+const finished = (at: number, cleared = false) => ({
+  attention: { reason: "finished", at, cleared, text: null } as const,
+});
 
 describe("sessionStatus", () => {
   it("puts a question above sign-in, sign-in above an error seen or not, and an error above running", () => {
@@ -54,6 +58,18 @@ describe("sessionStatus", () => {
       ].map(sessionStatus),
     ).toStrictEqual(["asking", "auth", "error", "error", "running", null]);
   });
+
+  it("shows a finished run below a run going on, until a look clears it", () => {
+    expect(
+      [
+        session("a", { ...finished(1) }),
+        session("b", { ...finished(1), running: true }),
+        session("c", { ...finished(1, true) }),
+        session("d", { ...finished(1, true), running: true }),
+        session("e", { ...finished(1), asking: 2 }),
+      ].map(sessionStatus),
+    ).toStrictEqual(["finished", "running", null, "running", "asking"]);
+  });
 });
 
 describe("topStatus", () => {
@@ -62,6 +78,8 @@ describe("topStatus", () => {
     expect(topStatus(["running", "auth", "error"])).toBe("auth");
     expect(topStatus(["auth", "asking", "running"])).toBe("asking");
     expect(topStatus([null, "running"])).toBe("running");
+    expect(topStatus(["finished", null])).toBe("finished");
+    expect(topStatus(["running", "finished"])).toBe("running");
     expect(topStatus([null])).toBeNull();
     expect(topStatus([])).toBeNull();
   });
@@ -78,6 +96,9 @@ describe("inboxOf", () => {
       session("signin", auth(5)),
       session("signin-seen", auth(3, true)),
       session("question", { asking: 1, ...error(70) }),
+      // A finished run waits for nothing: it shows a dot in the list, never here (SPEC-0005, 协议 36).
+      session("finished", finished(80)),
+      session("finished-seen", finished(90, true)),
     ]);
 
     expect(inbox.map((entry) => [entry.session.sessionId, entry.status, entry.at])).toStrictEqual([

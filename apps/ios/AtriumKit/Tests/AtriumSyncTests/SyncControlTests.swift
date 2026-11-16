@@ -168,7 +168,7 @@ struct SyncControlTests {
     #expect(sync.setChatPinned("cht_1", true) == [])
   }
 
-  @Test("clears an error the page shows once, and not an auth one, nor one already cleared")
+  @Test("clears an error or finished run the page shows once, and not an auth one, nor one already cleared")
   func clearAttention() {
     var sync = attentiveCore(#"{"reason":"error","at":1,"cleared":false,"text":null}"#)
     #expect(
@@ -183,5 +183,14 @@ struct SyncControlTests {
     #expect(auth.clearAttention("s1") == [])
     var cleared = attentiveCore(#"{"reason":"error","at":1,"cleared":true,"text":null}"#)
     #expect(cleared.clearAttention("s1") == [])
+
+    var finished = attentiveCore(#"{"reason":"finished","at":1,"cleared":false,"text":null}"#)
+    #expect(
+      finished.clearAttention("s1") == [
+        .send(
+          .clearAttention(ClearAttentionCommand(requestId: "r4", traceparent: traceparent, sessionId: "s1")),
+          generation: 1)
+      ])
+    #expect(finished.clearAttention("s1") == [])
   }
 }

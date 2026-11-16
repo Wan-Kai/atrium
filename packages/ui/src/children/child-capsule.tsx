@@ -16,7 +16,7 @@ import { type WorkspaceViews, showViewer } from "../state/workspace-views";
 import { childrenOf, descendantsOf, heldIn, modelLine, rowStatus } from "./children";
 
 /** The statuses the capsule counts, in the order it shows them (design-language, "会话状态"). */
-const COUNTED: readonly Exclude<RowStatus, null>[] = ["asking", "auth", "error", "running"];
+const COUNTED: readonly Exclude<RowStatus, null>[] = ["asking", "auth", "error", "running", "finished"];
 
 /**
  * The child conversations' capsule above the input box, and the list it opens.

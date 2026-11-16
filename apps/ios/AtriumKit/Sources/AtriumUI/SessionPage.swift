@@ -9,8 +9,9 @@ import SwiftUI
 ///   the back button, the title and "项目 · 分支". Opening the page opens the session on the Mac and
 ///   subscribes to it; leaving closes it. At the bottom the ``SessionDock`` sends with a receipt
 ///   (MP4b), queues, steers and stops (MP5b): unsettled messages show as bubbles marked "发送中" or
-///   "没能确认是否送到 · 重发". Showing the page clears its error (`clear_attention`), and again
-///   when the app comes back to the foreground. Short notes ("已停止", a failed action) show as a
+///   "没能确认是否送到 · 重发". Showing the page clears its error or finished dot (`clear_attention`),
+///   and again when the app comes back to the foreground; a child page or the change list pushed
+///   over it leaves the mark until you come back. Short notes ("已停止", a failed action) show as a
 ///   toast for 1.9 s.
 struct SessionPage: View {
   /// The session.
@@ -260,19 +261,29 @@ struct SessionPage: View {
     }
     .onAppear {
       sync?.open(sessionId)
-      sync?.clearAttention(sessionId)
+      markSeen()
     }
     .onDisappear {
       // A page left mid-scroll reports no rest; its older turns need not wait.
       sync?.rest.moving = false
       if Self.closes(child: openChild, changes: openChanges) { sync?.close(sessionId) }
     }
-    .onChange(of: sync?.core.index.sessions.first { $0.sessionId == sessionId }?.attention) {
-      sync?.clearAttention(sessionId)
-    }
-    .onChange(of: phase) { if phase == .active { sync?.clearAttention(sessionId) } }
-    .onChange(of: sync?.status) { sync?.clearAttention(sessionId) }
+    .onChange(of: sync?.core.index.sessions.first { $0.sessionId == sessionId }?.attention) { markSeen() }
+    .onChange(of: phase) { if phase == .active { markSeen() } }
+    .onChange(of: sync?.status) { markSeen() }
+    .onChange(of: openChild) { markSeen() }
+    .onChange(of: openChanges) { markSeen() }
     return toastingProblems(page)
+  }
+
+  /// Marks the session's error or finished run seen, while this page is the one showing.
+  ///
+  /// - Remark: SPEC-0005 "协议改动" 8: a child conversation or the change list pushed over this one
+  ///   covers it, as a viewer tab does on the desktop; coming back clears the mark then.
+  /// - SideEffects: Sends `clear_attention`.
+  private func markSeen() {
+    guard openChild == nil, openChanges == nil else { return }
+    sync?.clearAttention(sessionId)
   }
 
   /// Shows a failed action or pinning as the toast, and hides the toast after a while.

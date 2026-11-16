@@ -67,14 +67,17 @@ function edges(element: Element) {
 /** The parent. */
 const MAIN = session({ sessionId: "main", containerId: W, name: "重构登录" });
 
-/** 重构登录 with four children: one running, one asking below it, one elsewhere, one handed off. */
+/** 重构登录 with four children: one running, one asking below it, one elsewhere and done, one older. */
 const FAMILY = [
   MAIN,
   child("安全审查", "main", { running: true, updatedAt: Date.now() - 1000 }),
   child("补测试", "main", { containerId: OTHER, updatedAt: Date.now() - 180_000 }),
   child("边界用例", "补测试", { asking: 5, containerId: OTHER }),
   child("时区", "边界用例", { containerId: OTHER }),
-  child("日志排查", "main", { updatedAt: Date.now() - 3_600_000 }),
+  child("日志排查", "main", {
+    updatedAt: Date.now() - 3_600_000,
+    attention: { reason: "finished", at: 6, cleared: false, text: null },
+  }),
   child("旧的", "main", { archived: true }),
 ];
 
@@ -102,9 +105,10 @@ describe("ChildCapsule", () => {
     );
 
     const capsule = screen.getByRole("button", { name: /^子对话 3/ });
-    await expect.element(capsule).toHaveTextContent("子对话 3·1·1");
+    await expect.element(capsule).toHaveTextContent("子对话 3·1·1·1");
     await expect.element(capsule.getByRole("img", { name: "待回答" })).toBeInTheDocument();
     await expect.element(capsule.getByRole("img", { name: "运行中" })).toBeInTheDocument();
+    await expect.element(capsule.getByRole("img", { name: "已完成未读" })).toBeInTheDocument();
     await userEvent.click(capsule);
 
     const rows = screen.getByTestId("child-row");
@@ -115,6 +119,7 @@ describe("ChildCapsule", () => {
         "日志排查1 小时前",
       ]),
     );
+    await expect.element(rows.nth(2).getByRole("img", { name: "已完成未读" })).toBeInTheDocument();
     const list = screen.getByRole("dialog", { name: "子对话" }).element();
     expect(list.getBoundingClientRect().width).toBeLessThan(680);
   });

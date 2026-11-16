@@ -16,6 +16,8 @@
 
 ## 当前状态
 
+**2026-11-09：对话"已完成未读"实现完成，待用户验收；在 `atrium/proud-tiger`（worktree `proud-tiger`），未提交、未合并、未推送、未装包。** 用户自用中提：一次运行跑完，看不出"刚跑完还没看"和"历史对话"的区别，希望跑完标一个点、点开看过才消失。按早先定下的设计做：关注状态加 `finished`（协议 36），宿主在运行正常结束且没有对话框在等时设上，客户端显示出来（当前容器的激活标签、没有查看标签盖着、窗口有焦点）时 `clear_attention` 清掉；优先级在运行中之后，7px `--tint` 圆点；不进收件箱；工作区、对话、学习、收起的项目行按最高优先级汇总；子对话的点只在子对话条里（行的状态和胶囊计数），不抬高主对话的标签；对话行"进行中"的排序不把 `finished` 当进行中；手机首页行同义地用 7pt 深米点，会话页在前台时清掉。用户定：桌面和手机一起做、汇总行也显示、"成为当前会话且窗口有焦点"算看过、只有正常跑完才标（主动停止不标）。SPEC-0001/0002/0005、domain-model、design-language 已同步；验证见[追踪表](testing/coverage-map.md#已完成未读2026-11-09-自用反馈)。
+
 **2026-11-09：修掉已知不稳的测试，用户验收通过并合回 `main`，未推送。** 分支 `atrium/fix-flaky-tests`。`ask-user.leak`、`viewers.leak`：Chromium 在删掉带动画的元素后多留一帧，快照前等两帧（`heap.ts` 的 `settleFrames`）；`status-bar` 的卡片在顶层里不算悬停在父元素上，约 250 ms 后自己淡出，是产品 bug，改由 `use-hover-presence` 记进出（`group-data-[hovered]`），Fast 卡片同；`git.test.ts`、`boundary.test.ts` 子进程多，超时放到 30 秒；测试统一用 `@atrium/testkit` 的 `installedPi` 找 pi，跳过 cmux 的 pi 垫片。git 模板改为每轮建一次，用户定先不做。`question-card` 一处偶发的取整误差记在 testing.md 待查。详见 coverage-map "已知不稳的测试修复（2026-11-06）"。
 
 **2026-11-06：MV1 对话里的交互演示经用户验收通过并合回 `main`，未推送。** 分支 `atrium/mv1-inline-visuals`。审查后定：DNS 预解析泄露主机名作为已知风险接受（security.md），esm.sh 按版本范围的依赖继续拦，提示模型用固定版本加 `?bundle`。 协议 35（合并时 main 已用到 34：MP6e 32、拿掉交接 33、ML1 34）。宿主 `visuals/`（目录校验、令牌、外壳、监视、限速）、桌面端 `atrium-visual:` 协议与按 frame 的请求过滤、界面 `visual-card`、扩展的 `atrium_visuals` 提示、手机端占位卡片。实现时定的细节写在 SPEC-0007"MV1 实现时定的细节"（单独的 session 改成按 frame 过滤、回传要落在演示里的鼠标按下、插话步骤不标来源、打开按钮只给相对路径、截图内存里最多 64 个、单独运行的宿主没有演示），2026-11-06 用户全部确认；同日按用户要求在外壳里关掉 WebRTC，TURN over TCP 的口子堵上；测试与未跑的见[追踪表](testing/coverage-map.md#mv1-对话里的交互演示spec-00072026-11-05待验收)。三方审查还没做。
@@ -540,7 +542,7 @@ MVP 1 里还没设计、做到时先补设计的：
 
 #### 并行与 worktree
 
-- 完成或等待处理时发系统通知；"已完成未读"状态（关注原因 `finished`）。
+- 完成或等待处理时发系统通知（未做）；"已完成未读"状态（关注原因 `finished`）2026-11-09 已在自用中补上（见上面"当前状态"）。
 - 新建 worktree 工作区：由宿主创建 worktree，记下起点提交，会话在其中运行；工作区提供查看改动、合并、归档并清理 worktree 的入口（归档 2026-10-12 提前在 M1.11 做了，见 SPEC-0001"M1.11 的工作区归档"）；新会话时可选"当前工作区 / 新建 worktree"。
 - 参考：[SPEC-0001 · worktree 合并状态](specs/0001-mvp1-single-session-chat.md#侧栏)、[paseo-architecture](research/paseo-architecture.md) §6 git 状态。
 

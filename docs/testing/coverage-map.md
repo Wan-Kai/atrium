@@ -4,6 +4,28 @@
 >
 > 新增行为时在这里登记；一个里程碑完成前，它涉及的行都要有测试，并通过变异门槛。"待 M1.x"表示计划在该里程碑补上。
 
+## 已完成未读（2026-11-09 自用反馈）
+
+用户反馈：一次运行跑完，侧栏和标签上看不出"刚跑完、还没看"和"很久以前的历史"的区别；希望跑完标一个点，点开看过才消失。做法照早先写下的设计：关注状态加 `finished`，看过（成为当前会话且窗口有焦点）就清掉，不进收件箱，子对话的点不抬高主对话标签，手机上同义。
+
+| 需求 / 风险 | 验证 |
+|---|---|
+| 协议：`Attention.reason` 加 `finished`，未知原因仍被拒；Swift 类型和往返夹具同步；版本 36 | `packages/protocol/src/envelope.test.ts`（宿主消息示例含 `finished`，未知原因 `done` 被拒）、`remote.test.ts`；`AtriumProtocolTests/RoundTripTests.swift` |
+| 宿主：运行正常结束（`completed`）且没有对话框在等时设 `finished`（`text` 为 `null`）；失败仍是 `error` / `auth`；主动停止不设；下一次运行开始去掉；`clear_attention` 清 `error` 和 `finished`，不清 `auth` | `packages/host/src/sessions/session-manager.test.ts` 的 attention 一节（完成、看过清除、下一次运行开始清除、停止不标、失败后仍按完成标、对话框在等时不标） |
+| 桌面：优先级（待回答 > 待授权 > 出错 > 运行中 > 已完成未读 > 空闲）、看过即刻消失（已清出的出错仍旧显示，两者不同）、7px 圆点、工作区/对话/学习/收起项目行按最高优先级汇总、收件箱不收、对话行"进行中"的排序不把 `finished` 当进行中 | `packages/ui/src/sidebar/status.test.ts`；`packages/ui/src/app/workbench.browser.test.tsx`（工作区行和对话行上的点、显示时清掉、对话排序不因 `finished` 上升）；`packages/ui/src/study/study.browser.test.tsx`（学习行汇总） |
+| 子对话：点只在子对话条里（行的状态、胶囊计数），不抬高主对话的标签 | `packages/ui/src/children/children.test.ts`；`children.browser.test.tsx`（胶囊计数和行上的点） |
+| 手机：首页行 7pt 深米点（`StatusIcon` 的 `.unread`）、不进"等你处理"便签、排序在运行中之后、设置页子对话行、会话页在前台时 `clear_attention` 清掉（子对话页或改动列表压在上面时不清，回来再清） | `apps/ios/AtriumKit/Tests/AtriumSyncTests/HomeListTests.swift`（状态、排序、便签）、`SyncControlTests.swift`、`AtriumUITests/HomeViewTests.swift` |
+
+验证记录（2026-11-09，worktree `proud-tiger`，分支 `atrium/proud-tiger`，未提交）：
+
+- `pnpm check` 通过（格式、oxlint 含 JSDoc、类型、knip、`boundary --all` 未登记 0、`ios:check`）。
+- 单元 4754/4754（253 个文件）；`pnpm test:host` 251/251；`pnpm test:ui` 1223/1223；AtriumKit 475/475。
+- 已知不稳：中途有几轮全量并行跑各偶发一次失败，其中两次认出是本改动之前就偶发的 `visual-service.test.ts` 回传先后顺序（单独跑 20/20）和 `chat.browser.test.tsx` 插入后最远帧（单独跑 197/197），另有一次单元套件里单个失败没记下名字；之后单元整套连跑三次、界面整套一次都全绿，新加的那条宿主测试单独连跑八次也全过，没能复现，没改代码。
+- 破坏检查 `docs/testing/finished-attention.break-check.json` 13/13 CAUGHT（宿主三处、状态与收件箱、子对话标签与胶囊计数、图标名称、对话排序、显示时清除，Swift 三处）。
+- 定向变异：`packages/ui/src/sidebar/status.ts` 100%（73/73）；`packages/ui/src/children/children.ts` 97.54%，3 个存活都在未改动的 `modelLine`（既有存活）。`session-manager.ts`、`sidebar.tsx`、`status-icon.tsx`、`workbench.tsx` 不在变异分组。
+- 没覆盖：宿主在"运行刚好跑完、同时被归档"的窄竞态里不设 `finished`（`session-manager.ts` 的 `archived` 判断）没有测试，也没法稳定造出来；Swift 的"子对话页压在上面时不清"只有逻辑，没有 UI 测试。
+- 没跑：Electron 端到端、泄漏、打包、模拟器 UI 测试；未装包，未推送。
+
 ## MV1 对话里的交互演示（SPEC-0007，2026-11-05，2026-11-06 验收）
 
 回复里 `visual` 代码块内联成沙箱演示；协议 35（分支上是 32，2026-11-06 合回 main 时 main 已用到 34，改为 35；`resolve_visual`、`send_visual_message`、`visual_changed`、`Turn.user.source`）。实现时定的细节（2026-11-06 已全部由用户确认）见 SPEC-0007"MV1 实现时定的细节"。

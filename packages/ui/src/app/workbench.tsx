@@ -407,29 +407,30 @@ function useDraftCleanup(index: IndexView, client: AtriumClient): void {
 }
 
 /**
- * Marks the error of the session shown as seen while the window has the focus.
+ * Marks the error or finished run of the session shown as seen while the window has the focus.
  *
  * @remarks
  * SPEC-0001 ("会话状态"): the session is the current container's active tab with no viewer tab
- * over it, the window has the focus, and its error was not seen yet; looked at again when the
+ * over it, the window has the focus, and its mark was not seen yet; looked at again when the
  * window gains the focus. A sign-in problem is not marked: it goes once a run starts.
  *
- * @sideEffects Sends `clear_attention`; listens for focus on the window while there is an error
- * to mark.
+ * @sideEffects Sends `clear_attention`; listens for focus on the window while there is a mark to
+ * set as seen.
  * @param client - The client.
  * @param index - The list.
  * @param sessionId - The session shown, if any.
  */
-function useSeenErrors(client: AtriumClient, index: IndexView, sessionId: string | null): void {
+function useSeenAttention(client: AtriumClient, index: IndexView, sessionId: string | null): void {
   const attention = index.sessions.find((one) => one.sessionId === sessionId)?.attention ?? null;
-  const unseen = attention?.reason === "error" && !attention.cleared;
+  const unseen =
+    attention !== null && !attention.cleared && (attention.reason === "error" || attention.reason === "finished");
   useEffect(() => {
     if (sessionId === null || !unseen) return undefined;
     /**
-     * Marks the error seen.
+     * Marks the mark seen.
      *
      * @remarks
-     * See `useSeenErrors`.
+     * See `useSeenAttention`.
      *
      * @sideEffects Sends `clear_attention`.
      */
@@ -624,7 +625,7 @@ function MainWindow({
   usePaneShortcuts(client, pages, panes);
   // On the new-workspace page or a learning page, under a viewer tab or a direction's home, no session shows.
   const sessionShown = pageProject === null && learningPage === null && viewer === null && !homeShown;
-  useSeenErrors(client, index, sessionShown ? sessionId : null);
+  useSeenAttention(client, index, sessionShown ? sessionId : null);
   /**
    * Leaves the new-workspace page and the learning pages.
    *

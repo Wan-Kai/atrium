@@ -58,7 +58,7 @@ export interface SessionCommands {
   restoreChat(chatId: string): Promise<CommandResult<"restore_chat">>;
   /** Names a session in pi. */
   renameSession(sessionId: string, name: string): Promise<CommandResult<"rename_session">>;
-  /** Marks a session's error as seen; a sign-in problem stays until the next run (SPEC-0001, "会话状态"). */
+  /** Marks a session's error or finished run as seen; a sign-in problem stays until the next run (SPEC-0001, "会话状态"). */
   clearAttention(sessionId: string): Promise<CommandResult<"clear_attention">>;
   /**
    * A session's snapshot as it stands, for a phone that cannot take an event too large for it

@@ -423,9 +423,10 @@ struct SiblingRow: View {
   /// The row.
   var body: some View {
     let palette = Palette(scheme: scheme)
-    let failed = session.attention.map { !($0.reason == .error && $0.cleared) } ?? false
+    let failed = session.attention.map { $0.reason == .auth || ($0.reason == .error && !$0.cleared) } ?? false
+    let done = session.attention.map { $0.reason == .finished && !$0.cleared } ?? false
     let kind: StatusIcon.Kind =
-      session.asking != nil ? .asking : failed ? .error : session.running ? .running : .idle
+      session.asking != nil ? .asking : failed ? .error : session.running ? .running : done ? .unread : .idle
     HStack(spacing: 10) {
       StatusIcon(kind: kind, size: 20)
       VStack(alignment: .leading, spacing: 1) {

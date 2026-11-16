@@ -435,9 +435,9 @@ export interface SidebarLearning {
  *
  * @remarks
  * design-language ("侧栏"): styled as a chat's row, a 14px mortarboard in `--tint`, "学习"; at its
- * end the highest status of the sessions in directions not archived, so a run shows the spinner
- * and a question its icon (SPEC-0008, "入口"). Lit while a learning page or a direction shows.
- * Going there leaves the new-workspace page, as any row does.
+ * end the highest status of the sessions in directions not archived, so a run shows the spinner,
+ * a question its icon and a run finished and not seen its dot (SPEC-0008, "入口"). Lit while a
+ * learning page or a direction shows. Going there leaves the new-workspace page, as any row does.
  *
  * @sideEffects Calls `onOpen` when clicked.
  * @param props - The list, whether it is lit, and what opening does.
@@ -536,7 +536,7 @@ interface ListedChat {
   readonly status: RowStatus;
   /** When the user pinned it; `null` when not (SPEC-0001, "对话的置顶与顺序"). */
   readonly pinnedAt: number | null;
-  /** A session in it is running or shows a status icon, which brings the chat up the list. */
+  /** A session in it is in progress — asking, a sign-in, an error or a run going — which brings the chat up the list. */
   readonly busy: boolean;
 }
 
@@ -546,8 +546,8 @@ interface ListedChat {
  * @remarks
  * An archived chat, or one whose sessions are all archived, is left out; its activity is its
  * sessions' latest, its status their highest (SPEC-0001, "对话", "M1.11 的对话归档"). Pinned
- * first, then the ones with a status icon, then the rest by activity (SPEC-0001,
- * "对话的置顶与顺序").
+ * first, then the ones in progress ("置顶 → 进行中 → 最近活动"), then the rest by activity
+ * (SPEC-0001, "对话的置顶与顺序"); a run finished and not seen is not in progress.
  *
  * @sideEffects none
  * @param index - The list.
@@ -558,14 +558,14 @@ function listedChats(index: Pick<IndexView, "chats" | "sessions">): ListedChat[]
     .filter((chat) => chat.archivedAt === null)
     .map((chat) => {
       const sessions = index.sessions.filter((session) => session.containerId === chat.id && !session.archived);
-      const status = topStatus(sessions.map(sessionStatus));
+      const statuses = sessions.map(sessionStatus);
       return {
         chat,
         sessions,
         at: Math.max(...sessions.map((session) => session.updatedAt)),
-        status,
+        status: topStatus(statuses),
         pinnedAt: chat.pinnedAt,
-        busy: status !== null,
+        busy: statuses.some((status) => status !== null && status !== "finished"),
       };
     })
     .filter((each) => each.sessions.length > 0);
