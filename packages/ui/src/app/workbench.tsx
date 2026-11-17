@@ -609,8 +609,8 @@ function MainWindow({
   /** What is being created right now, shown as a waiting tab until the host answers. */
   const [pending, setPending] = useState<"session" | "terminal" | null>(null);
   const terminals = useStore(client.terminals, (state) => state.terminals);
-  /** Terminals an agent opened whose tab this window already made; closing one does not bring it back. */
-  const agentTabsOpened = useRef(new Set<string>());
+  /** Terminals this window already made a tab for; closing one ends it, so it never comes back. */
+  const terminalTabsOpened = useRef(new Set<string>());
   const [views] = useState(() => createWorkspaceViews(localStorage));
   const [area] = useState(createTaskArea);
   const tasksOpen = useStore(area, (state) => state.open);
@@ -626,11 +626,16 @@ function MainWindow({
   );
   useDraftCleanup(index, client);
   useEffect(() => {
-    // An agent's terminal appears as a tab of its own container, wherever this window happens to
-    // be (SPEC-0009): the host broadcasts it, and nothing else would draw it.
+    // Tabs live in this window; a reload lost them while the PTYs kept running.
+    void client.restoreTerminals().catch(() => undefined);
+  }, [client]);
+  useEffect(() => {
+    // Every running terminal gets a tab of its own container, wherever this window happens to be:
+    // an agent's is broadcast with nothing else to draw it, and a reloaded window finds its own
+    // again from `terminal_list` (SPEC-0009, "生命周期").
     for (const terminal of terminals) {
-      if (terminal.origin !== "agent" || agentTabsOpened.current.has(terminal.id)) continue;
-      agentTabsOpened.current.add(terminal.id);
+      if (terminalTabsOpened.current.has(terminal.id)) continue;
+      terminalTabsOpened.current.add(terminal.id);
       openTerminalTab(views, terminal.containerId, terminal.id);
     }
   });

@@ -701,6 +701,26 @@ describe("what a caller may ask for", () => {
   });
 });
 
+describe("what a window may list after a reload", () => {
+  it("gives back this client's terminals and the agents', not another window's", () => {
+    const { service } = harness();
+    const mine = openIn(service);
+    const other = openIn(service, OTHER_CALLER);
+    const byAgent = agentOpen(service);
+    const listed = service.list(CALLER).map((terminal) => terminal.id);
+    expect(listed).toStrictEqual([mine.id, byAgent.id]);
+    expect(listed).not.toContain(other.id);
+  });
+
+  it("leaves out a terminal whose process ended", () => {
+    const { service, spawned } = harness();
+    const mine = openIn(service);
+    spawned[0]?.exit(0);
+    expect(service.list(CALLER)).toStrictEqual([]);
+    expect(mine.id).not.toBe("");
+  });
+});
+
 describe("hasForegroundProcess", () => {
   it("is true while a program runs, and false for an ended terminal", async () => {
     const { service, spawned } = harness();

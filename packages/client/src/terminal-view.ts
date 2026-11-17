@@ -6,10 +6,12 @@ export interface TerminalsView {
   readonly status: "idle" | "ready";
   /** Open terminals; the tab bar follows this order. */
   readonly terminals: readonly Terminal[];
+  /** Goes up on every connection, so a pane knows to attach again (SPEC-0009, "生命周期"). */
+  readonly generation: number;
 }
 
 /** The terminal list before the host has said anything. */
-export const NO_TERMINALS: TerminalsView = { status: "idle", terminals: [] };
+export const NO_TERMINALS: TerminalsView = { status: "idle", terminals: [], generation: 0 };
 
 /**
  * The list with one terminal added or replaced, keeping its position.

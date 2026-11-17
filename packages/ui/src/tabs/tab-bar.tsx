@@ -252,7 +252,7 @@ export function TabBar({
       <span className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
         {home?.archived === true ? null : (
           <>
-            <MenuButton label="新建（⌘T 为新会话）" align="start" compact content={<Plus size={15} />}>
+            <MenuButton label="新建" align="start" compact content={<Plus size={15} />}>
               {(close) => (
                 <>
                   <button

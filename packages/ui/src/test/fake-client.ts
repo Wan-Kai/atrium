@@ -14,7 +14,7 @@ import type {
   TaskState,
   TasksView,
 } from "@atrium/client";
-import { isDirectionId, loadingView } from "@atrium/client";
+import { NO_TERMINALS, type TerminalsView, isDirectionId, loadingView } from "@atrium/client";
 import {
   type Chat,
   type ChildPlacement,
@@ -401,6 +401,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
   /** What the area asked of the workspace changes, in order. */
   const changeCalls: string[] = [];
   const changeStores = new Map<string, StoreApi<ChangesView>>();
+  const terminals: StoreApi<TerminalsView> = createStore<TerminalsView>(() => NO_TERMINALS);
   const diff = createStore<DiffView>(() => ({ target: null, status: "idle", files: [], tooLarge: false, error: null }));
   const modelLists = new Map<string | null, StoreApi<ModelListView>>();
   const views = new Map<string, StoreApi<SessionView>>();
@@ -676,6 +677,11 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       });
       return { workspaceId: id };
     },
+    // A reloaded window asks the host what still runs; the fake has no terminals (SPEC-0009).
+    async restoreTerminals() {
+      calls.push("restoreTerminals");
+    },
+
     async openSession(sessionId: string) {
       calls.push(`openSession ${sessionId}`);
       openTab(sessionId);
@@ -1280,6 +1286,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       });
       return {};
     },
+    terminals,
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a test double with the methods the UI uses.
   } as unknown as AtriumClient;
   return {

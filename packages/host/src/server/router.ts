@@ -69,7 +69,7 @@ export interface RouterOptions {
   /** Inline visuals: their addresses and the messages sent from them (SPEC-0007). */
   readonly visuals: Pick<VisualService, "resolve" | "resolveForDirection" | "send" | "release">;
   /** Terminals on this Mac (SPEC-0009); a phone may not drive one. */
-  readonly terminals: Pick<TerminalService, "open" | "attach" | "write" | "resize" | "close">;
+  readonly terminals: Pick<TerminalService, "list" | "open" | "attach" | "write" | "resize" | "close">;
   readonly index: IndexCommands;
   /** Learning directions (SPEC-0008). */
   readonly study: Pick<
@@ -329,6 +329,8 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.fetchStep(command);
       case "fetch_image":
         return options.sessions.fetchImage(command);
+      case "terminal_list":
+        return { terminals: [...options.terminals.list(caller)] };
       case "terminal_open":
         return {
           terminal: options.terminals.open({

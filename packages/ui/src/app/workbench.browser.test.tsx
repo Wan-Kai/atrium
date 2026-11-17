@@ -2083,7 +2083,9 @@ describe("Workbench tabs", () => {
   it("creates a session in the workspace with +, then as a draft in a new tab", async () => {
     const { screen, calls } = await workbench();
 
-    await screen.getByRole("button", { name: "新建会话（⌘T）" }).click();
+    // "+" opens the menu now (SPEC-0009): new session, new terminal, sub-conversation.
+    await screen.getByRole("button", { name: "新建", exact: true }).click();
+    await screen.getByRole("menuitem", { name: /^新会话/ }).click();
 
     await vi.waitFor(() => expect(calls).toContain(`createSession ${LOCAL}`));
     await expect.element(screen.getByRole("tab").nth(2)).toHaveTextContent("新会话");
@@ -2527,7 +2529,9 @@ describe("Workbench keys and focus", () => {
 
     await userEvent.keyboard("{Meta>}t{/Meta}");
     await vi.waitFor(() => expect(calls).toContain(`createSession ${CHAT}`));
-    await screen.getByRole("button", { name: "新建会话（⌘T）" }).click();
+    // "+" opens the menu now (SPEC-0009): new session, new terminal, sub-conversation.
+    await screen.getByRole("button", { name: "新建", exact: true }).click();
+    await screen.getByRole("menuitem", { name: /^新会话/ }).click();
     await vi.waitFor(() =>
       expect(calls.filter((call) => call.startsWith("create"))).toStrictEqual([
         `createSession ${CHAT}`,

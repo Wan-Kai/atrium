@@ -73,6 +73,7 @@ export const COMMAND_REACH = {
   // Projects and workspaces.
   // A terminal is a TUI on this Mac; the phone may see one later, so every command starts here
   // (SPEC-0009, "非目标"). Attaching is a subscription, not an occupation, so this is policy only.
+  terminal_list: "local_only",
   terminal_open: "local_only",
   terminal_attach: "local_only",
   terminal_write: "local_only",

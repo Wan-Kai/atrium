@@ -1,14 +1,14 @@
 [
   {
     "type": "hello",
-    "protocolVersion": 41,
+    "protocolVersion": 42,
     "clientId": "c1",
     "token": "t",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
   {
     "type": "hello",
-    "protocolVersion": 41,
+    "protocolVersion": 42,
     "clientId": "dev_0123456789abcdef",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
@@ -714,6 +714,11 @@
     "requestId": "r38m",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
     "scheduleId": "rul_a"
+  },
+  {
+    "type": "terminal_list",
+    "requestId": "r41z",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
   {
     "type": "terminal_open",

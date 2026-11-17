@@ -41,8 +41,8 @@ const pairing = {
 };
 
 describe("the coordinated remote contract", () => {
-  it("uses version 41, which adds the embedded terminal on the desktop only (SPEC-0009)", () => {
-    expect(PROTOCOL_VERSION).toBe(41);
+  it("uses version 42, which lets a reloaded window find its terminals again (SPEC-0009)", () => {
+    expect(PROTOCOL_VERSION).toBe(42);
   });
 
   it.each([

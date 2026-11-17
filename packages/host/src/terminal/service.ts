@@ -141,6 +141,14 @@ export interface TerminalService {
   hasForegroundProcess(terminalId: TerminalId): Promise<boolean>;
   /** Terminals this connection opened or attached to, in the order they were opened. */
   openTerminals(): readonly Terminal[];
+  /**
+   * The running terminals a client may still show.
+   *
+   * @remarks
+   * Its own and the ones agents opened; another window's terminals are not its business
+   * (SPEC-0009, "生命周期").
+   */
+  list(caller: Caller): readonly Terminal[];
   /** Ends every terminal, for host shutdown. */
   closeAll(): Promise<void>;
 }
@@ -832,6 +840,13 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
         // A failed query must not silently skip the question (SPEC-0009).
         return true;
       }
+    },
+
+    list(caller) {
+      return [...running.values()]
+        .filter((entry) => !entry.exited)
+        .filter((entry) => entry.terminal.origin === "agent" || owners.get(entry.terminal.id) === caller.clientId)
+        .map((entry) => entry.terminal);
     },
 
     openTerminals() {
