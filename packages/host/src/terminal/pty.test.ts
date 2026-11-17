@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { spawnPty, terminalEnv } from "./pty";
+import { descendantsOf } from "./children";
 
 describe("terminalEnv", () => {
   it("starts a shell like a terminal app does, not like this process", () => {
@@ -107,4 +108,53 @@ describe("the PTY wrapper", () => {
     pty.kill();
     await vi.waitFor(() => expect(exited).not.toBeNull(), { timeout: 15_000, interval: 200 });
   }, 20_000);
+});
+
+describe("what a shell started", () => {
+  it("is reachable through the process tree, so closing the shell can end it too", async () => {
+    const pty = spawnPty({ shell: "/bin/zsh", cwd: "/tmp", cols: 80, rows: 24, env: terminalEnv(process.env) });
+    try {
+      // A background job: job control puts it in a process group of its own, which is why the
+      // shell's group is not enough (measured 2026-11-16).
+      pty.write("sleep 300 &\r");
+      let found: readonly number[] = [];
+      await vi.waitFor(
+        async () => {
+          found = await descendantsOf(pty.pid);
+          expect(found.length).toBeGreaterThan(0);
+        },
+        { timeout: 15_000, interval: 300 },
+      );
+      // A pid can end between the table and the signal; that is the normal race, not a failure.
+      for (const pid of found) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          // Already gone.
+        }
+      }
+      pty.kill("SIGKILL");
+      // Every pid the tree named is gone: signalling them by pid works where a group does not.
+      await vi.waitFor(
+        () =>
+          expect(
+            found.filter((pid) => {
+              try {
+                process.kill(pid, 0);
+                return true;
+              } catch {
+                return false;
+              }
+            }),
+          ).toStrictEqual([]),
+        { timeout: 15_000, interval: 200 },
+      );
+    } finally {
+      try {
+        pty.kill("SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
+  }, 40_000);
 });
