@@ -128,6 +128,7 @@ atrium/
 │   │   │   │                       GraphValidator、ScheduleService；用 sessions/、workspaces/、store/、platform/，反过来不用
 │   │   │   ├── reviews/            ReviewHub（ADR-0018）：按会话汇总各来源的待审核、校验裁决的形状、只认第一个裁决、转交给来源的 provider；不知道任务或 agent。任务关卡的 provider 在 `tasks/task-reviews.ts`
 │   │   │   ├── changes/            ChangesService（工作区的 git 改动：胶囊上的合计、右栏"更改"和"改动"标签的 diff，监听有人看的工作区）
+│   │   │   ├── terminal/           内置终端（SPEC-0009）：TerminalService、PtyAdapter（node-pty）、有界历史与快照、流控、目录按容器解析、关标签前查前台进程；agent 只能读写自己开的终端，读屏用 headless 仿真（@xterm/headless）
 │   │   │   ├── visuals/            交互演示（SPEC-0007，MV1）：演示目录里的路径校验、令牌、外壳和 CSP、按目录监视、
 │   │   │   │                       回传的限速；`/visual/<令牌>/…` 由 server 的 HTTP 处理转来
 │   │   │   └── platform/           登录 shell 的环境、Clock、日志、子进程工具、git 调用（并发上限 4）
@@ -146,7 +147,7 @@ atrium/
 │   │       ├── design/             设计变量（CSS）、外观、弹簧曲线、点阵、图标封装、字体、服务商官方图标（brand/）
 │   │       ├── sidebar/            侧栏、搜索、项目与工作区、对话分区（收件箱在 M1.9）
 │   │       ├── study/              学习模式（SPEC-0008）：学习首页、新建方向页、方向主页标签和主页
-│   │       ├── tabs/               标签栏、历史和会话菜单
+│   │       ├── tabs/               标签栏、历史和会话菜单；终端标签（SPEC-0009）与 xterm.js 适配在 terminal-tab.tsx / terminal-view.tsx
 │   │       ├── tasks/              任务区（SPEC-0006）：固定的"任务""定时"标签、任务列表、任务标签（图 + 任务对话）
 │   │       ├── children/           子对话：子对话条、面包屑、开子对话的对话框和它们的规则（SPEC-0002）
 │   │       ├── chat/               对话区：消息流、过程、步骤、diff、Streamdown、平滑揭示、提问导航条、输入框；PlantUML 的有界本地 worker、工作区回复图片和全屏预览；受控文件引用与有界 JSON/CSV 查看（2026-10-20）；reply-translation 的临时回复译文；visual-card 交互演示的卡片（iframe、外壳消息、离开视口卸载和截图，SPEC-0007）
@@ -284,13 +285,14 @@ main.ts 负责组装全部
 - Electron 主进程用 `utilityProcess.fork` 启动宿主：宿主跑在 Electron 自带的 Node 里，用户不需要另装 Node 来跑宿主（pi 本身仍用系统里的 Node）。
 - 宿主入口不依赖 Electron，`node packages/host/dist/main.js` 能单独运行，以后无界面运行用它。
 - 窗口从固定的来源 `atrium://app/` 加载界面（2026-10-08 定）：主进程用 `protocol.handle` 把这个协议的请求转给宿主的静态文件服务，只把内容安全策略换成允许连接宿主端口的版本；WebSocket 仍连宿主的随机端口，宿主的 `Origin` 白名单里加上 `atrium://app`。宿主端口每次启动都不同，直接加载 `http://127.0.0.1:<端口>` 时页面来源跟着变，`localStorage` 里的客户端 id、折叠状态、草稿重启后就丢了；固定来源让它们保留下来。开发时页面来自 Vite 的固定端口，不受影响。
-- 打包时宿主打成单个文件放进应用资源目录，避免只声明为 peerDependency 的包在 `app.asar` 里找不到（Paseo 踩过）。
+- 打包时宿主打成单个文件放进应用资源目录，避免只声明为 peerDependency 的包在 `app.asar` 里找不到（Paseo 踩过）。内置终端的 node-pty 是原生模块（`.node` 加 `spawn-helper`），没法内联：按平台预编译包放进 `Resources/app/native/node-pty/`，宿主按 `app.isPackaged` 选目录，启动时补 `spawn-helper` 的执行位（SPEC-0009）。
 - 本机打包（2026-10-11 定）：`pnpm package` 用 `@electron/packager` 生成 `apps/desktop/out/Atrium-darwin-<架构>/Atrium.app`，不依赖仓库和本机的 Node，可以拷进"应用程序"、拷给同一台机器上的别的账户。应用目录 `Contents/Resources/app/` 里是主进程和预加载脚本（`dist/`）、宿主单文件和登录程序（`host/`）、界面（`ui/`），没有 `node_modules`；应用图标是 `apps/desktop/assets/icon.icns`（[design-language · 标志](design-language.md#标志)）；主进程按 `app.isPackaged` 在这里找宿主和界面，没打包时在仓库里找。不用 asar：登录程序由系统 Node 运行，读不了 asar，宿主的静态文件服务也按真实路径检查文件。签名（Apple Silicon 上的程序必须带签名才能运行）用 `ATRIUM_CODESIGN_IDENTITY` 指定的证书，不设时退到 ad-hoc（2026-11-03 改）：签名决定 macOS 认不认得「同一个 app」，ad-hoc 的 requirement 是二进制的 cdhash、每打一次包就变，系统授过的「文稿」等权限随每次换装作废；证书签名的 requirement 是 bundle id 加证书，一次授权跨重装有效。都不公证：本机生成的文件没有隔离标记，Gatekeeper 不拦。开发版和打包版的应用名都是 Atrium，共用单实例锁和页面存储，同时只能开一个。
 
 ## 进程模型
 
 - 宿主是独立的 Node 进程。桌面端由 Electron 启动宿主，宿主也可以脱离 Electron 单独运行。
 - 每个会话对应一个 pi 子进程（RPC 模式），理由见 [ADR-0002](../adr/0002-connect-pi-via-rpc-subprocess.md)。多个会话可以并行运行。
+- 每个内置终端对应一个 PTY（node-pty），和 pi 一样是宿主的子进程；终端不是会话，不进会话列表、没有分支和编辑，宿主退出时一起结束（SPEC-0009）。
 - 会话属于工作区：工作区是本地项目目录或一个 git worktree，与目录一一对应；pi 子进程以工作区目录为工作目录。worktree 由宿主创建和清理。不绑定工作区的"对话"各有一个独立的空目录（`~/.atrium/chats/<id>/`）作为工作目录。
 - pi 崩溃不影响宿主和 UI，适配器负责重启和报错。
 

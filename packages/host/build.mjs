@@ -23,7 +23,9 @@ async function bundle(entryPoint, outfile) {
     format: "cjs",
     target: "node22",
     sourcemap: true,
-    external: ["bufferutil", "utf-8-validate"],
+    // node-pty is a native module: bundling it inlines its JS and then `__dirname` points at
+    // dist/, so it cannot find its own prebuilds. It stays a runtime require (SPEC-0009).
+    external: ["bufferutil", "utf-8-validate", "node-pty"],
     logLevel: "warning",
   });
 }

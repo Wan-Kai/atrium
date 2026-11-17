@@ -2732,5 +2732,47 @@
     {
       "taskId": "tsk_t"
     }
+  ],
+  "terminal_open": [
+    {
+      "terminal": {
+        "id": "term_0123456789abcdef",
+        "containerId": "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
+        "title": "zsh",
+        "cwd": "/Users/test",
+        "cols": 112,
+        "rows": 51,
+        "state": "running",
+        "exitCode": null,
+        "origin": "user",
+        "sessionId": null
+      }
+    }
+  ],
+  "terminal_attach": [
+    {
+      "terminal": {
+        "id": "term_0123456789abcdef",
+        "containerId": "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
+        "title": "zsh",
+        "cwd": "/Users/test",
+        "cols": 112,
+        "rows": 51,
+        "state": "running",
+        "exitCode": null,
+        "origin": "user",
+        "sessionId": null
+      },
+      "history": "$ ls\r\n"
+    }
+  ],
+  "terminal_write": [
+    {}
+  ],
+  "terminal_resize": [
+    {}
+  ],
+  "terminal_close": [
+    {}
   ]
 }

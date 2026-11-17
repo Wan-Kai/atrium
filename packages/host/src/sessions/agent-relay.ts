@@ -99,7 +99,44 @@ export interface ChildCreated {
 }
 
 /** What the relay needs of the host: the index, the sessions' pi and their workspaces. */
+import type { AgentKey } from "../terminal/service";
+
 export interface AgentHost {
+  /**
+   * Terminals an agent may drive (SPEC-0009, "agent 操作终端").
+   *
+   * @remarks
+   * Absent when the host has no terminal service; the tools are registered per session anyway, so
+   * a call then fails rather than the tool being missing.
+   */
+  readonly terminals?: {
+    open(
+      sessionId: string,
+      command: string,
+      title: string | undefined,
+    ): Promise<{ readonly terminalId: string; readonly title: string; readonly directory: string }>;
+    read(
+      sessionId: string,
+      terminalId: string,
+      lines: number | undefined,
+    ): Promise<{
+      readonly text: string;
+      readonly cols: number;
+      readonly rows: number;
+      readonly cursor: { readonly row: number; readonly col: number };
+      readonly state: "running" | "exited";
+      readonly exitCode: number | null;
+      readonly reported: { readonly state: string; readonly app: string | null } | null;
+    }>;
+    type(sessionId: string, terminalId: string, text: string, submit: boolean | undefined): Promise<boolean>;
+    key(sessionId: string, terminalId: string, key: AgentKey): Promise<boolean>;
+    wait(
+      sessionId: string,
+      terminalId: string,
+      options: { readonly until?: "quiet" | "exited"; readonly quietMs?: number; readonly timeoutMs?: number },
+    ): Promise<{ readonly quiet: boolean; readonly exited: boolean; readonly exitCode: number | null }>;
+    close(sessionId: string, terminalId: string): Promise<void>;
+  };
   readonly catalog: Pick<SessionCatalog, "list" | "find" | "changeAgent">;
   readonly clock: Clock;
   readonly newId: () => string;
@@ -1710,6 +1747,42 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
         return read(sessionId, request.args);
       case "stop":
         return stop(sessionId, request.args);
+      case "open_terminal": {
+        if (host.terminals === undefined) throw new AgentFailure("agent_bad_request");
+        return host.terminals.open(sessionId, request.args.command, request.args.title);
+      }
+      case "read_terminal": {
+        if (host.terminals === undefined) throw new AgentFailure("agent_bad_request");
+        return host.terminals.read(sessionId, request.args.terminalId, request.args.lines);
+      }
+      case "type_terminal": {
+        if (host.terminals === undefined) throw new AgentFailure("agent_bad_request");
+        const settled = await host.terminals.type(
+          sessionId,
+          request.args.terminalId,
+          request.args.text,
+          request.args.submit,
+        );
+        return { settled };
+      }
+      case "key_terminal": {
+        if (host.terminals === undefined) throw new AgentFailure("agent_bad_request");
+        const settled = await host.terminals.key(sessionId, request.args.terminalId, request.args.key);
+        return { settled };
+      }
+      case "wait_terminal": {
+        if (host.terminals === undefined) throw new AgentFailure("agent_bad_request");
+        return host.terminals.wait(sessionId, request.args.terminalId, {
+          ...(request.args.until === undefined ? {} : { until: request.args.until }),
+          ...(request.args.quietMs === undefined ? {} : { quietMs: request.args.quietMs }),
+          ...(request.args.timeoutMs === undefined ? {} : { timeoutMs: request.args.timeoutMs }),
+        });
+      }
+      case "close_terminal": {
+        if (host.terminals === undefined) throw new AgentFailure("agent_bad_request");
+        await host.terminals.close(sessionId, request.args.terminalId);
+        return {};
+      }
       case "models": {
         const current = host.modelOf(sessionId);
         const models = await host.models(sessionId);

@@ -73,6 +73,7 @@
 - 外部命令一律用 `execFile` / `spawn` 传参数数组，不经过 shell，防止命令注入；参数来自用户输入时（分支名、路径）先校验。
 - 在终端中打开（SPEC-0001，2026-11-05）：桌面壳按固定顺序找 cmux 的命令（`/Applications/cmux.app/Contents/Resources/bin/cmux`、`/opt/homebrew/bin/cmux`、`/usr/local/bin/cmux`），用 `execFile` 跑它，工作区路径和窗口 id 都只作为参数；没装 cmux 时用 `/usr/bin/open -a Terminal <目录>`。cmux 的凭据由它自己的 CLI 从官方密码存储读，Atrium 不读、不传、不记；cmux 和用户在终端里的任务不归 Atrium 管，Atrium 退出或归档时不关闭它。
 - 在 `PATH` 里找 pi 时跳过相对路径（包括 POSIX 里表示"当前目录"的空项），宿主不会运行恰好位于自己工作目录里的 `pi`。交给 pi（`pi --version` 和 `pi --mode rpc`）的 `PATH` 也去掉相对项：pi 的启动脚本用 `#!/usr/bin/env node` 在 `PATH` 上找 `node`，相对项会让它运行工作目录里的 `node`。
+- 内置终端（SPEC-0009，2026-11-12 定）：PTY 由宿主持有，shell 按"最小终端基线"启动——只给 `HOME`、`USER`、`LOGNAME`、`SHELL`、`TMPDIR`、`LANG`、`LC_*`、`SSH_AUTH_SOCK`、`ZDOTDIR`、`__CF_USER_TEXT_ENCODING` 加 `TERM`、`COLORTERM`，**不传 `PATH`**（让 profile 自己算），剔除 `ATRIUM_*`、`ELECTRON_*`（token）、`PI_*`、`AI_AGENT`、`CLAUDE_CODE_*`、`VIBE_ISLAND_*`；终端里没有宿主的 token。目录只由宿主按容器解析，不接受客户端给的路径。终端里的命令、输出和 cwd 不进日志、链路与会话文件（日志只记终端 id、容器、错误码、字节数）；历史只在宿主内存里、不落盘。新命令对手机一律 `local_only`。关标签前查前台进程，查询失败按"有前台进程"处理。agent 可以开、读、写、等待、关闭终端，但**只限它自己开的**（`origin` 与发起会话都对得上，否则 `terminal_not_owner`）；用户的终端绝不能让 agent 写入。读屏由宿主的 headless 仿真取纯文本（`@xterm/headless`，不参与渲染），读到的内容会进模型上下文——屏幕上被 echo 出来的凭据因此可能到达模型，这是读屏的固有代价，但不进日志、不进会话文件。写入不解析、不过滤（和 Bash 一样，不构成新权限），靠"只碰自己的终端 + 每次 ≤ 4 KiB、每终端每秒 ≤ 20 次"限速。
 - Atrium 自己的 Node 程序用 `process.execPath` 启动，不通过 `npx` 或 `.bin` 脚本。pi 用找到的绝对路径直接启动（宿主跑在 Electron 里时 `process.execPath` 是 Electron 本身），PATH 取自登录 shell，不经过 shell。git 同样用登录 shell 的 PATH，去掉相对项和空项，仓库里同名的 `git` 不会被执行（2026-10-08 审查后补）；git 超时或取消时连同它拉起的子进程（ssh、凭据助手）一起结束。
 - `@` 引用的文件搜索限制在工作区目录内：不接受 `~/`、绝对路径和 `..`，查询词放在 `--` 之后传给 `fd`，不会被当成选项。工作区里的符号链接和 pi 一样跟进去，它指向的内容算工作区的一部分（用户自己放的链接，agent 本来也能经它读到；2026-10-10 定）。
 - 工作区改动（SPEC-0001"工作区改动"）跑的 git 命令都是固定参数，不带用户给的路径，ref 写完整名；统计未跟踪文件时只读 `git ls-files` 列出的、工作区里的普通文件：打开时拒绝符号链接（`O_NOFOLLOW`），类型、大小和内容都从同一次打开里取，最多读 1 MB；git 的输出和文件路径不进日志（2026-10-10 定）。
@@ -223,6 +224,8 @@ MP3a，协议见 [SPEC-0005](../specs/0005-mobile-app-and-remote-access.md)。�
 | 名字 | 谁读或交给谁 | 用途 | 出处 |
 |---|---|---|---|
 | `ATRIUM_HOME` | 宿主、桌面端主进程、`pi:try` | Atrium 的数据目录（默认 `~/.atrium`）；桌面端据此把 Electron 的数据分开；设了它时学习目录改在 `$ATRIUM_HOME/Learning`（SPEC-0008） | development.md、本文"凭据与日志""子进程与文件" |
+| `TERM` | 宿主写进终端 shell 的环境，交给终端里的程序 | 终端类型，固定 `xterm-256color`（SPEC-0009） | SPEC-0009"环境" |
+| `COLORTERM` | 同上 | 固定 `truecolor`，让 CLI 知道可以上真彩色 | SPEC-0009"环境" |
 | `ATRIUM_PORT` | 宿主（单独运行时） | 监听端口，默认随机 | 本文"WebSocket 与鉴权" |
 | `ATRIUM_TOKEN` | 宿主（单独运行时） | 指定 token，要满足长度和字符集 | 本文"WebSocket 与鉴权" |
 | `ATRIUM_UI_DIR` | 宿主（单独运行时） | 要提供的界面文件目录 | overview.md"桌面端怎么启动宿主" |
@@ -230,6 +233,7 @@ MP3a，协议见 [SPEC-0005](../specs/0005-mobile-app-and-remote-access.md)。�
 | `ATRIUM_DEV_URL` | 桌面端主进程 | 开发时页面来自 Vite 的地址 | development.md `pnpm dev` |
 | `ATRIUM_HOST_ENTRY` | 桌面端主进程 | 换一个宿主入口（测试用） | overview.md"桌面端怎么启动宿主" |
 | `ATRIUM_FOLLOW_TASKS` | 桌面端主进程（`!app.isPackaged` 时才读）、单独运行的宿主（`entry.ts`） | 开发用：宿主只读地跟着 `pnpm task:try` 的任务目录（`<home>/tasks`），不写、不跑、不起 pi。打包版的桌面端不读它，Electron 里的宿主只收主进程交来的值，所以打包版设了也没用。目录等于 Atrium 自己的任务目录时宿主拒绝 | SPEC-0006"T7.1 定下的细节"、development.md"task:try 与 Atrium" |
+| `ATRIUM_ELECTRON_ZIP_DIR` | `pnpm package`（`apps/desktop/package.mjs`） | 离线打包：一个有 `electron-v<版本>-<平台>-<架构>.zip` 的目录，`@electron/packager` 用它代替去 GitHub 下载（2026-11-16 定） | development.md"本机打包" |
 | `ATRIUM_APP_METRICS_INTERVAL_MS` | 桌面端主进程 | 进程资源采样间隔（测试用） | testing.md"运行时监控" |
 | `ATRIUM_RELAY_DIR` | relay（`cli.ts`） | 数据目录（`relay.json`、`hosts.json`、`logs/`），默认当前目录；Docker 镜像里是 `/data`，`--dir` 优先 | SPEC-0005"部署 relay" |
 | `ATRIUM_RELAY_LISTEN` | relay（`cli.ts`） | 监听地址，默认 `127.0.0.1:8787`；Docker 镜像里是 `0.0.0.0:8787`（端口只发布到宿主机的 127.0.0.1），`--listen` 优先 | SPEC-0005"部署 relay"、本文"relay" |

@@ -320,6 +320,112 @@ const PARENT_TOOL_SPECS: Readonly<Record<(typeof PARENT_TOOLS)[number], Omit<Age
   },
 };
 
+/** The terminal tools an ordinary session may use (SPEC-0009, "agent 操作终端"). */
+const TERMINAL_TOOLS = [
+  "terminal_open",
+  "terminal_read",
+  "terminal_type",
+  "terminal_key",
+  "terminal_wait",
+  "terminal_close",
+] as const;
+
+/** What each terminal tool tells the model, before {@link TERMINAL_RULES}. */
+const TERMINAL_TOOL_SPECS: Readonly<Record<(typeof TERMINAL_TOOLS)[number], Omit<AgentTool, "execute" | "name">>> = {
+  terminal_open: {
+    label: "Open a terminal",
+    description:
+      "Open a terminal in this session's directory and run a command in it. What the program prints does not come back here: read the screen with terminal_read.",
+    parameters: object(
+      {
+        command: textParam("What to run, as if typed at the prompt.", 2000),
+        title: { type: "string", description: "What to call its tab, at most 40 characters." },
+      },
+      ["command"],
+    ),
+  },
+  terminal_read: {
+    label: "Read a terminal",
+    description:
+      "Read what a terminal shows right now, as plain text, with the cursor and whether the program is still running.",
+    parameters: object(
+      {
+        terminalId: textParam("The terminal, as terminal_open returned it.", 64),
+        lines: { type: "integer", minimum: 1, maximum: 200, description: "How many of the last lines." },
+      },
+      ["terminalId"],
+    ),
+  },
+  terminal_type: {
+    label: "Type into a terminal",
+    description:
+      "Type text into a terminal. Multi-line text goes in as one paste where the program asked for pastes, so it is not submitted line by line; set submit to press Enter after it. It returns once the screen has settled after the write, so terminal_read straight away shows the result.",
+    parameters: object(
+      {
+        terminalId: textParam("The terminal.", 64),
+        text: textParam("What to type.", 4096),
+        submit: { type: "boolean", description: "Press Enter after the text. Default false." },
+      },
+      ["terminalId", "text"],
+    ),
+  },
+  terminal_key: {
+    label: "Press a key",
+    description:
+      "Press one named key in a terminal, for menus and interrupts. Submitting keys (enter, esc, ctrl-c) return once the screen has settled; arrows do not wait, so moving in a menu stays quick.",
+    parameters: object(
+      {
+        terminalId: textParam("The terminal.", 64),
+        key: {
+          type: "string",
+          enum: ["enter", "esc", "ctrl-c", "ctrl-d", "tab", "shift-tab", "up", "down", "left", "right"],
+          description: "Which key.",
+        },
+      },
+      ["terminalId", "key"],
+    ),
+  },
+  terminal_wait: {
+    label: "Wait for a terminal",
+    description:
+      'Wait for long work only: typing and pressing keys already wait for the screen to settle. Use until "exited" to wait for a program to end, or a larger quietMs after starting something slow. Quiet means it stopped drawing, not that its task finished.',
+    parameters: object(
+      {
+        terminalId: textParam("The terminal.", 64),
+        until: { type: "string", enum: ["quiet", "exited"], description: "quiet (default) or exited." },
+        quietMs: {
+          type: "integer",
+          minimum: 100,
+          maximum: 10_000,
+          description: "How still counts as quiet. Default 800.",
+        },
+        timeoutMs: { type: "integer", minimum: 100, maximum: 60_000, description: "How long to wait at most." },
+      },
+      ["terminalId"],
+    ),
+  },
+  terminal_close: {
+    label: "Close a terminal",
+    description: "Close a terminal you opened.",
+    parameters: object({ terminalId: textParam("The terminal.", 64) }, ["terminalId"]),
+  },
+};
+
+/** The call each terminal tool makes. */
+const TERMINAL_OPS: Readonly<
+  Record<
+    (typeof TERMINAL_TOOLS)[number],
+    "open_terminal" | "read_terminal" | "type_terminal" | "key_terminal" | "wait_terminal" | "close_terminal"
+  >
+> = {
+  terminal_open: "open_terminal",
+  terminal_read: "read_terminal",
+  terminal_type: "type_terminal",
+  terminal_key: "key_terminal",
+  terminal_wait: "wait_terminal",
+  terminal_close: "close_terminal",
+};
+
 /** The calls each main-agent tool makes. */
 const PARENT_OPS: Readonly<Record<(typeof PARENT_TOOLS)[number], Exclude<CallOp, "ask_user" | `study_${string}`>>> = {
   agent_spawn: "spawn",
@@ -778,6 +884,49 @@ export default function atriumAgent(pi: AgentApi, deps: AgentDeps = REAL_DEPS): 
    * @param ctx - Its context.
    * @returns The result.
    */
+  /**
+   * Runs one terminal tool: asks the host, then words its answer.
+   *
+   * @remarks
+   * The host owns the terminal; the extension only names the call (SPEC-0009, "agent 操作终端").
+   *
+   * @sideEffects Sends a call over the channel and waits for its answer.
+   * @param tool - Which tool.
+   * @param id - The tool call's id, used as the request id.
+   * @param params - What the model gave.
+   * @param signal - Ends the wait when the run is stopped.
+   * @returns The tool's result.
+   */
+  const runTerminalTool = async (
+    tool: (typeof TERMINAL_TOOLS)[number],
+    id: string,
+    params: Readonly<Record<string, unknown>>,
+    signal: AbortSignal | undefined,
+    ctx: AgentContext,
+  ): Promise<ToolResult> => {
+    const op = TERMINAL_OPS[tool];
+    const reply = await ask(ctx.ui, id, op, params, signal);
+    if (reply === null) return stopped();
+    if (!reply.ok) return failed(reply.code, reply.params);
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the host answers each call with its own result, in the same bundle.
+    return toolResult(resultText(op, reply.result as CallResults[typeof op]), reply.result);
+  };
+
+  /**
+   * Runs one of the sub-agent tools: asks the host, then words its answer.
+   *
+   * @remarks
+   * `agent_spawn` may have to cut the branch it hands over first, which is the only thing that
+   * happens before the call (SPEC-0002).
+   *
+   * @sideEffects Sends a call over the channel and waits for its answer.
+   * @param tool - Which tool.
+   * @param id - The tool call's id, used as the request id.
+   * @param params - What the model gave.
+   * @param signal - Ends the wait when the run is stopped.
+   * @param ctx - The tool call's context, for the UI and the branch.
+   * @returns The tool's result.
+   */
   const runParentTool = async (
     tool: (typeof PARENT_TOOLS)[number],
     id: string,
@@ -904,6 +1053,29 @@ export default function atriumAgent(pi: AgentApi, deps: AgentDeps = REAL_DEPS): 
     const closed = [...questions].filter(([, one]) => !one.open);
     for (const [old] of closed.slice(0, Math.max(0, closed.length - CLOSED_KEPT))) questions.delete(old);
   };
+
+  /**
+   * What the agent is told about terminals, on top of each tool's own text.
+   *
+   * @remarks
+   * Both rules come from what a real Claude Code run did: it sits quiet on a trust prompt for
+   * seconds, and answering that prompt blindly ends the session (SPEC-0009, "实测").
+   */
+  const TERMINAL_RULES =
+    "Quiet is not finished: after terminal_wait, read the screen before deciding. If the screen asks for trust, permission or 'press Enter to continue', do not answer it: stop and tell the user.";
+
+  // A sub-conversation gets none of these: terminals belong to the session a person is looking at.
+  if (!who().child) {
+    for (const tool of TERMINAL_TOOLS) {
+      const spec = TERMINAL_TOOL_SPECS[tool];
+      pi.registerTool({
+        name: tool,
+        ...spec,
+        description: `${spec.description} ${TERMINAL_RULES}`,
+        execute: (id, params, signal, _onUpdate, ctx) => runTerminalTool(tool, id, params, signal, ctx),
+      });
+    }
+  }
 
   for (const tool of PARENT_TOOLS)
     pi.registerTool({

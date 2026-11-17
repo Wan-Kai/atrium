@@ -15,4 +15,6 @@
 | [pi-vs-dsh.html](pi-vs-dsh.html) | pi 与 DeepSeek Harness 的设计思路和插件开发对比（Archify 单页，源稿 [pi-vs-dsh.archify.md](pi-vs-dsh.archify.md)）；插件系统暂缓的依据 |
 | [mobile-remote.md](mobile-remote.md) | 手机端：Paseo、Claude Code、Happy、Codex、Cursor、OpenCode 等怎么让本机的 agent 和手机共用一个对话（连接方式、配对、加密、同步、批准、推送），以及对 Atrium 的结论 |
 | [multi-agent.md](multi-agent.md) | 子代理与多会话：Paseo、Codex、Claude Code 怎么开子代理、控制和通知、界面，以及对 Atrium 的结论 |
+| [agent-terminal-tools.md](agent-terminal-tools.md) | agent 操作终端的接口：Claude Code 的 `BashOutput`/`KillBash`、herdr 的 `hc run/send/read/wait`、cmux 的 `--command`/`send`；三家怎么判断"做完"，以及四条值得抄的规则（2026-11-16） |
+| [embedded-terminal.md](embedded-terminal.md) | 内置终端：T3 Code、Orca、herdr 的 PTY 归属、渲染器、历史与重放、状态、多客户端；打包与安全的成本；对 Atrium 的三个方案和待定项（2026-11-12） |
 | [inline-visuals.md](inline-visuals.md) | Codex 的 Visualize 插件怎么在对话里显示模型写的 HTML：片段文件和引用、沙箱与 CSP、CDN 白名单、宿主提供的运行环境、回传；对 Atrium 的结论 |

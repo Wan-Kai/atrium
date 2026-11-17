@@ -1,7 +1,8 @@
 import { type AtriumClient, isDirectionId } from "@atrium/client";
 import type { StoreApi } from "zustand";
 import { inDirectionVisuals, isDirectionVisual } from "../study/archive";
-import { type WorkspaceViews, openDiff } from "../state/workspace-views";
+import { type WorkspaceViews, closeViewer, openDiff, openTerminalTab } from "../state/workspace-views";
+import { TerminalPane } from "../terminal/terminal-pane";
 import { DiffViewer } from "./diff-viewer";
 import { FileViewer } from "./file-viewer";
 import { useDiffMode, useShownDiff } from "./use-diff";
@@ -42,6 +43,24 @@ export function ActiveViewer({
   const mode = useDiffMode(client, views, direction ? null : workspaceId);
   const shown = useShownDiff(client, direction ? "" : workspaceId, mode);
   if (viewerKey === "diff") return <DiffViewer client={client} workspaceId={workspaceId} views={views} mode={mode} />;
+  if (viewerKey.startsWith("terminal:")) {
+    const terminalId = viewerKey.slice("terminal:".length);
+    return (
+      <TerminalPane
+        client={client}
+        terminalId={terminalId}
+        onRestart={() => {
+          // A terminal that ended cannot be revived: starting again is a new PTY and a new tab
+          // (SPEC-0009, "生命周期").
+          closeViewer(views, workspaceId, viewerKey, []);
+          void client
+            .openTerminal(workspaceId, 100, 30)
+            .then(({ terminal }) => openTerminalTab(views, workspaceId, terminal.id))
+            .catch(() => undefined);
+        }}
+      />
+    );
+  }
   const path = viewerKey.slice("file:".length);
   const diff = shown?.files.find((file) => file.path === path) ?? null;
   const demo = direction && isDirectionVisual(path);

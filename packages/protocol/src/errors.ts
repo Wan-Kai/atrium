@@ -163,6 +163,22 @@ export const ErrorCode = z.enum([
    * start), or absent when git failed (SPEC-0001, "M1.11 的新建工作区").
    */
   "worktree_create_failed",
+  /** The terminal named no longer exists: it was closed, or the host restarted (SPEC-0009). */
+  "terminal_not_found",
+  /** The terminal belongs to another connection, or to the user while an agent asked for it. */
+  "terminal_not_owner",
+  /** The container already has the most terminals it may have open. */
+  "terminal_limit",
+  /** The container has no directory to open a terminal in, or the direction is gone. */
+  "terminal_cwd_invalid",
+  /** The PTY could not be started. */
+  "terminal_spawn_failed",
+  /** Something is running in the terminal; closing it needs `force` after asking (SPEC-0009). */
+  "terminal_has_process",
+  /** An agent's write was larger than a terminal accepts (SPEC-0009). */
+  "terminal_write_too_large",
+  /** An agent wrote to a terminal faster than it accepts (SPEC-0009). */
+  "terminal_write_too_fast",
   /**
    * No worktree was created or restored: the repository's own configuration includes other files
    * (`params.reason` `include`) or has a filter whose name cannot be turned off (`filter_name`)

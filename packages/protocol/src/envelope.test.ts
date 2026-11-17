@@ -11,6 +11,7 @@ import { type CatalogModel, ThinkingLevel } from "./models";
 import type { PendingReview } from "./reviews";
 import { type Notice, Step, Turn } from "./transcript";
 import { isChatId } from "./ids";
+import type { Terminal } from "./terminal";
 import { protocolJsonSchema } from "./json-schema";
 import { PROTOCOL_VERSION } from "./version";
 
@@ -24,6 +25,22 @@ const DEVICE = "dev_0123456789abcdef";
 const PAIRING = "pair_0123456789abcdef";
 const TASK = "tsk_0123456789abcdef";
 const RELAY_LINE = `atrium-relay://hst_0123456789abcdef:${"A".repeat(43)}@ktoon.site/atrium`;
+
+const TERMINAL = "term_0123456789abcdef";
+
+/** One terminal, as the host describes it (SPEC-0009). */
+const terminal: Terminal = {
+  id: TERMINAL,
+  containerId: CHAT,
+  title: "zsh",
+  cwd: "/Users/test",
+  cols: 112,
+  rows: 51,
+  state: "running",
+  exitCode: null,
+  origin: "user",
+  sessionId: null,
+};
 
 /** One valid example of every command. */
 const commands: Command[] = [
@@ -272,6 +289,11 @@ const commands: Command[] = [
   { type: "run_schedule_now", requestId: "r38k", traceparent, scheduleId: "rul_a" },
   { type: "delete_schedule", requestId: "r38l", traceparent, scheduleId: "rul_a" },
   { type: "edit_schedule", requestId: "r38m", traceparent, scheduleId: "rul_a" },
+  { type: "terminal_open", requestId: "r41a", traceparent, containerId: CHAT, cols: 112, rows: 51 },
+  { type: "terminal_attach", requestId: "r41b", traceparent, terminalId: TERMINAL },
+  { type: "terminal_write", requestId: "r41c", traceparent, terminalId: TERMINAL, data: "ls\r" },
+  { type: "terminal_resize", requestId: "r41d", traceparent, terminalId: TERMINAL, cols: 100, rows: 40 },
+  { type: "terminal_close", requestId: "r41e", traceparent, terminalId: TERMINAL },
   {
     type: "answer_review",
     requestId: "r38e",
@@ -1284,6 +1306,11 @@ describe("parseClientMessage", () => {
       "stop",
       "subscribe_index",
       "subscribe_sessions",
+      "terminal_attach",
+      "terminal_close",
+      "terminal_open",
+      "terminal_resize",
+      "terminal_write",
       "test_relay",
       "translate_reply",
       "unpin_chat",
@@ -2421,6 +2448,10 @@ const hostMessages: unknown[] = [
   },
   { type: "response", requestId: "r2", ok: true, result: { sessionId: "s1" } },
   { type: "response", requestId: "r1", ok: true },
+  { type: "terminal_opened", terminal },
+  { type: "terminal_output", terminalId: TERMINAL, data: "$ ls\r\n" },
+  { type: "terminal_exited", terminalId: TERMINAL, exitCode: 0 },
+  { type: "terminal_closed", terminalId: TERMINAL },
   { type: "response", requestId: null, ok: false, error: { code: "invalid_message" } },
   {
     type: "response",
@@ -2886,6 +2917,11 @@ const commandResultExamples = {
   run_schedule_now: [{ taskId: "tsk_a" }],
   delete_schedule: [{}],
   edit_schedule: [{ taskId: "tsk_t" }],
+  terminal_open: [{ terminal }],
+  terminal_attach: [{ terminal, history: "$ ls\r\n" }],
+  terminal_write: [{}],
+  terminal_resize: [{}],
+  terminal_close: [{}],
 } satisfies Record<CommandType, unknown[]>;
 
 /**
@@ -3120,6 +3156,14 @@ describe("HostMessage", () => {
       "worktree_remove_failed",
       "worktree_restore_failed",
       "worktree_create_failed",
+      "terminal_not_found",
+      "terminal_not_owner",
+      "terminal_limit",
+      "terminal_cwd_invalid",
+      "terminal_spawn_failed",
+      "terminal_has_process",
+      "terminal_write_too_large",
+      "terminal_write_too_fast",
       "worktree_config_unsafe",
       "workspace_in_task",
       "task_not_found",
