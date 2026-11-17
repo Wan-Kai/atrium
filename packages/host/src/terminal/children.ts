@@ -54,3 +54,54 @@ export async function childPidsOf(pid: number, options: ChildrenOptions = {}): P
   }
   return children;
 }
+
+/** The most descendants one close will walk; a fork bomb cannot make it run forever. */
+const MAX_TREE = 200;
+
+/**
+ * Every process under `pid`, deepest list first.
+ *
+ * @remarks
+ * A shell's background jobs go into process groups of their own under job control, so signalling
+ * the shell's group leaves them running (measured 2026-11-16). Walking the tree is what reaches
+ * them (SPEC-0009, "生命周期").
+ *
+ * @sideEffects Reads the process table once per level.
+ * @param pid - The shell's pid.
+ * @param options - Where to read the table from.
+ * @returns The descendants' pids; empty when there are none.
+ */
+export async function descendantsOf(pid: number, options: ChildrenOptions = {}): Promise<readonly number[]> {
+  const table = await (options.table ?? (() => readProcessTable(options.timeoutMs)))();
+  const children = new Map<number, number[]>();
+  for (const line of table.split("\n")) {
+    const [child, parent] = line.trim().split(/\s+/u);
+    if (child === undefined || parent === undefined) continue;
+    const parentPid = Number(parent);
+    const childPid = Number(child);
+    if (!Number.isInteger(parentPid) || !Number.isInteger(childPid)) continue;
+    const known = children.get(parentPid) ?? [];
+    known.push(childPid);
+    children.set(parentPid, known);
+  }
+  const found: number[] = [];
+  /**
+   * Collects one process's children, then theirs.
+   *
+   * @remarks
+   * Depth-first, capped at {@link MAX_TREE}, so a wide or deep tree cannot stall a close.
+   *
+   * @sideEffects Adds to `found`.
+   * @param from - The pid to walk from.
+   */
+  const walk = (from: number): void => {
+    for (const child of children.get(from) ?? []) {
+      if (found.length >= MAX_TREE) return;
+      if (found.includes(child)) continue;
+      found.push(child);
+      walk(child);
+    }
+  };
+  walk(pid);
+  return found;
+}

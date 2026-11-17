@@ -73,6 +73,10 @@ export interface TerminalServiceOptions {
   readonly logger: Logger;
   /** The pids whose parent is `pid`; `ps` in production, a list in tests. */
   readonly childrenOf: (pid: number) => Promise<readonly number[]>;
+  /** Every pid under `pid`, for closing; `ps` in production, a list in tests. */
+  readonly descendantsOf: (pid: number) => Promise<readonly number[]>;
+  /** Signals one pid; `process.kill` in production, a recorder in tests. */
+  readonly signal: (pid: number, signal: "SIGTERM" | "SIGKILL") => void;
   /** How long a closing terminal gets before `SIGKILL`. */
   readonly killGraceMs?: number;
 }
@@ -454,13 +458,35 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
         finish(entry);
         return;
       }
-      entry.pty.kill("SIGTERM");
+      // Background jobs live in process groups of their own, so the tree is walked, not the group.
+      const descendants = await options.descendantsOf(entry.pty.pid).catch(() => []);
+      /**
+       * Signals the shell and everything under it.
+       *
+       * @remarks
+       * The children are signalled first: once the shell dies they are reparented, and the list
+       * that was read is the only record of them.
+       *
+       * @sideEffects Signals processes.
+       * @param signal - Which signal.
+       */
+      const signalAll = (signal: "SIGTERM" | "SIGKILL"): void => {
+        for (const pid of descendants) {
+          try {
+            options.signal(pid, signal);
+          } catch {
+            // Already gone; the rest still get theirs.
+          }
+        }
+        entry.pty.kill(signal);
+      };
+      signalAll("SIGTERM");
       await new Promise<void>((resolve) => {
         const escalation = trackedTimeout(
           options.clock,
           options.resources,
           () => {
-            entry.pty.kill("SIGKILL");
+            signalAll("SIGKILL");
           },
           killGraceMs,
         );

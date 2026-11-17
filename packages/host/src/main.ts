@@ -48,7 +48,7 @@ import { REMOTE_FILE } from "./remote/devices";
 import { loadIndexFile } from "./store/index-file";
 import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
-import { childPidsOf } from "./terminal/children";
+import { childPidsOf, descendantsOf } from "./terminal/children";
 import { spawnPty, terminalEnv } from "./terminal/pty";
 import { type TerminalService, createTerminalService } from "./terminal/service";
 import {
@@ -658,6 +658,10 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     resources,
     logger,
     childrenOf: (pid) => childPidsOf(pid),
+    descendantsOf: (pid) => descendantsOf(pid),
+    signal: (pid, name) => {
+      process.kill(pid, name);
+    },
   });
   terminalBridge.current = terminals;
   const translations = createReplyTranslations({

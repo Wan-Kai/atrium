@@ -1,7 +1,7 @@
 import { CommandError, type Terminal } from "@atrium/protocol";
 import { FakeClock } from "@atrium/testkit";
 import { ResourceTracker } from "../platform/resources";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Logger } from "../platform/logger";
 import type { PtySpawnInput, PtyProcess } from "./pty";
 import { type TerminalEvent, createTerminalService } from "./service";
@@ -58,12 +58,13 @@ function fakePty(input: PtySpawnInput) {
 }
 
 /** The service with fakes around it; `children` decides what `ps` answers. */
-function harness(options: { readonly childrenFails?: boolean } = {}) {
+function harness(options: { readonly childrenFails?: boolean; readonly descendants?: readonly number[] } = {}) {
   const clock = new FakeClock();
   const resources = new ResourceTracker();
   const sent: Array<[string, TerminalEvent]> = [];
   const spawned: Array<ReturnType<typeof fakePty>> = [];
   const warnings: string[] = [];
+  const signals: string[] = [];
   const dirs = new Map<string, string>([[W1, "/work/a"]]);
   const service = createTerminalService({
     shell: "/bin/zsh",
@@ -84,9 +85,11 @@ function harness(options: { readonly childrenFails?: boolean } = {}) {
       if (options.childrenFails === true) throw new Error("ps: no such process");
       return [4300];
     },
+    descendantsOf: async () => options.descendants ?? [],
+    signal: (pid, name) => signals.push(`${String(pid)}:${name}`),
     killGraceMs: 3000,
   });
-  return { service, clock, sent, spawned, warnings, dirs, resources };
+  return { service, clock, sent, spawned, warnings, dirs, resources, signals };
 }
 
 /** What each `terminal_output` event carried, in order. */
@@ -194,6 +197,8 @@ describe("open", () => {
       resources: new ResourceTracker(),
       logger: quietLogger(),
       childrenOf: async () => [],
+      descendantsOf: async () => [],
+      signal: () => undefined,
     });
     expect(codeOf(() => service.open({ caller: CALLER, containerId: W1, cols: 80, rows: 24 }))).toBe(
       "terminal_spawn_failed",
@@ -333,7 +338,8 @@ describe("close", () => {
     const { service, sent, spawned } = harness();
     const terminal = openIn(service);
     const closing = service.close(CALLER, terminal.id, true);
-    expect(spawned[0]?.calls).toContain("kill:SIGTERM");
+    // The tree is read before signalling, so the first signal follows an await.
+    await vi.waitFor(() => expect(spawned[0]?.calls).toContain("kill:SIGTERM"));
     spawned[0]?.exit(143);
     await closing;
     expect(lastEvent(sent, "terminal_closed")).toStrictEqual({ type: "terminal_closed", terminalId: terminal.id });
@@ -343,6 +349,7 @@ describe("close", () => {
     const { service, clock, spawned } = harness();
     const terminal = openIn(service);
     const closing = service.close(CALLER, terminal.id, true);
+    await vi.waitFor(() => expect(spawned[0]?.calls).toContain("kill:SIGTERM"));
     clock.advance(3000);
     expect(spawned[0]?.calls).toContain("kill:SIGKILL");
     clock.advance(1000);
@@ -620,6 +627,7 @@ describe("what an agent may do", () => {
     const { service, clock, spawned } = harness();
     const terminal = agentOpen(service);
     const closing = service.agentClose(SESSION, terminal.id);
+    await vi.waitFor(() => expect(spawned[0]?.calls).toContain("kill:SIGTERM"));
     clock.advance(4000);
     await closing;
     expect(spawned[0]?.calls).toContain("kill:SIGTERM");
@@ -670,6 +678,10 @@ describe("edges the limits and closes turn on", () => {
     openIn(service);
     agentOpen(service);
     const closing = service.closeAll();
+    // Each close reads the tree before signalling, so both signals land after an await.
+    await vi.waitFor(() =>
+      expect(spawned.map((pty) => pty.calls.includes("kill:SIGTERM"))).toStrictEqual([true, true]),
+    );
     clock.advance(4000);
     await closing;
     expect(service.openTerminals()).toStrictEqual([]);
@@ -739,6 +751,21 @@ describe("what a window may list after a reload", () => {
     spawned[0]?.exit(0);
     expect(service.list(CALLER)).toStrictEqual([]);
     expect(mine.id).not.toBe("");
+  });
+});
+
+describe("closing reaches what the shell started", () => {
+  it("signals the shell's descendants, then them again with SIGKILL", async () => {
+    const { service, clock, signals, spawned } = harness({ descendants: [4300, 4301] });
+    const terminal = openIn(service);
+    const closing = service.close(CALLER, terminal.id, true);
+    await vi.waitFor(() => expect(signals).toStrictEqual(["4300:SIGTERM", "4301:SIGTERM"]));
+    // The shell's own kill goes through the PTY, which the fake records.
+    expect(spawned[0]?.calls).toContain("kill:SIGTERM");
+    clock.advance(3000);
+    expect(signals.slice(2)).toStrictEqual(["4300:SIGKILL", "4301:SIGKILL"]);
+    clock.advance(1000);
+    await closing;
   });
 });
 
