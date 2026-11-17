@@ -3119,7 +3119,7 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 
 验证（2026-11-11，未合并）：`pnpm check` 通过；`session-manager.test.ts` 233/233、`study.host.test.ts` 11/11、宿主项目 361/361；单元项目 6212/6212（第二轮全过；第一轮 `packages/host/src/tasks/conversation.test.ts` 有一条 git 场景失败，重跑没再出现，和这次改动无关）。没跑 UI、e2e、泄漏、pi 契约和变异（`session-manager.ts` 不在变异分组里，见 `mutation-groups.mjs`）。
 
-## 内置终端（SPEC-0009，2026-11-16，待验收）
+## 内置终端（SPEC-0009，2026-11-16，验收通过并合回 `main`）
 
 分支 `atrium/research-terminal-tool`（worktree `research-terminal-tool`）。宿主、协议、界面、agent 工具四层。
 

@@ -1,6 +1,6 @@
 # SPEC-0009：内置终端
 
-- **状态**：实施中
+- **状态**：已完成（2026-11-16 验收通过，合回 `main`）
 - **创建**：2026-11-12
 - **更新**：2026-11-12
 - **相关**：[路线图 · 阶段](../roadmap.md)、[调研 · 内置终端](../research/embedded-terminal.md)、[外部终端最小接入](../architecture/external-terminal.md)、[domain-model](../architecture/domain-model.md)、[security.md](../architecture/security.md)、[ADR-0013](../adr/0013-agent-channel-status-and-hidden-command.md)（agent 与宿主的通道）
