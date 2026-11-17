@@ -86,7 +86,7 @@ function harness(options: { readonly childrenFails?: boolean } = {}) {
     },
     killGraceMs: 3000,
   });
-  return { service, clock, sent, spawned, warnings, dirs };
+  return { service, clock, sent, spawned, warnings, dirs, resources };
 }
 
 /** What each `terminal_output` event carried, in order. */
@@ -739,6 +739,45 @@ describe("what a window may list after a reload", () => {
     spawned[0]?.exit(0);
     expect(service.list(CALLER)).toStrictEqual([]);
     expect(mine.id).not.toBe("");
+  });
+});
+
+describe("a stopped tool call stops the host's work", () => {
+  it("stops waiting when the call is aborted, and leaves no timer behind", async () => {
+    const { service, clock, spawned, resources } = harness();
+    const terminal = agentOpen(service);
+    const stopping = new AbortController();
+    let answered = false;
+    const waiting = service.agentWait(SESSION, terminal.id, {
+      quietMs: 5000,
+      timeoutMs: 20_000,
+      signal: stopping.signal,
+    });
+    void waiting.then(() => {
+      answered = true;
+      return answered;
+    });
+    spawned[0]?.output("working");
+    clock.advance(300);
+    expect(answered).toBe(false);
+    stopping.abort();
+    clock.advance(200);
+    await expect(waiting).resolves.toStrictEqual({ quiet: false, exited: false, exitCode: null });
+    // The poll that would have run later found nothing to do; no timer is left counting.
+    clock.advance(30_000);
+    expect(resources.snapshot()["timer"]).toBe(0);
+  });
+
+  it("stops waiting for a settled screen when the call is aborted", async () => {
+    const { service, clock, resources } = harness();
+    const terminal = agentOpen(service);
+    const stopping = new AbortController();
+    const typing = service.agentType(SESSION, terminal.id, "x", true, stopping.signal);
+    stopping.abort();
+    clock.advance(200);
+    await expect(typing).resolves.toBe(false);
+    clock.advance(30_000);
+    expect(resources.snapshot()["timer"]).toBe(0);
   });
 });
 

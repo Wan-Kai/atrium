@@ -128,12 +128,23 @@ export interface AgentHost {
       readonly exitCode: number | null;
       readonly reported: { readonly state: string; readonly app: string | null } | null;
     }>;
-    type(sessionId: string, terminalId: string, text: string, submit: boolean | undefined): Promise<boolean>;
-    key(sessionId: string, terminalId: string, key: AgentKey): Promise<boolean>;
+    type(
+      sessionId: string,
+      terminalId: string,
+      text: string,
+      submit: boolean | undefined,
+      signal?: AbortSignal,
+    ): Promise<boolean>;
+    key(sessionId: string, terminalId: string, key: AgentKey, signal?: AbortSignal): Promise<boolean>;
     wait(
       sessionId: string,
       terminalId: string,
-      options: { readonly until?: "quiet" | "exited"; readonly quietMs?: number; readonly timeoutMs?: number },
+      options: {
+        readonly until?: "quiet" | "exited";
+        readonly quietMs?: number;
+        readonly timeoutMs?: number;
+        readonly signal?: AbortSignal;
+      },
     ): Promise<{ readonly quiet: boolean; readonly exited: boolean; readonly exitCode: number | null }>;
     close(sessionId: string, terminalId: string): Promise<void>;
   };
@@ -560,6 +571,8 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
   const { catalog, clock } = host;
   /** Calls under way, by session, process and request id (ADR-0013, point 4). */
   const calls = new Map<string, Promise<void>>();
+  /** The call under way per session and id, so a stopped tool call stops its host work (ADR-0013, 6). */
+  const inFlight = new Map<string, AbortController>();
   /**
    * Calls answered, by session and process: their ids, and the latest replies, to send again for a
    * request repeated (ADR-0013, point 4).
@@ -1779,6 +1792,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
    * @param sessionId - The caller.
    * @param epoch - Its process.
    * @param request - The call.
+   * @param signal - Ends the work when the tool call is stopped.
    * @returns The result, or `null` for no answer.
    * @throws {AgentFailure} As the operation's.
    */
@@ -1786,6 +1800,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
     sessionId: string,
     epoch: number,
     request: Extract<AgentRequest, { kind: "call" }>,
+    signal?: AbortSignal,
   ): Promise<unknown> => {
     if (isStudyCall(request)) {
       const answered = (await host.study?.(sessionId, request)) ?? { ok: false, code: "study_not_allowed" };
@@ -1822,12 +1837,13 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
           request.args.terminalId,
           request.args.text,
           request.args.submit,
+          signal,
         );
         return { settled };
       }
       case "key_terminal": {
         if (host.terminals === undefined) throw new AgentFailure("agent_bad_request");
-        const settled = await host.terminals.key(sessionId, request.args.terminalId, request.args.key);
+        const settled = await host.terminals.key(sessionId, request.args.terminalId, request.args.key, signal);
         return { settled };
       }
       case "wait_terminal": {
@@ -1836,6 +1852,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
           ...(request.args.until === undefined ? {} : { until: request.args.until }),
           ...(request.args.quietMs === undefined ? {} : { quietMs: request.args.quietMs }),
           ...(request.args.timeoutMs === undefined ? {} : { timeoutMs: request.args.timeoutMs }),
+          ...(signal === undefined ? {} : { signal }),
         });
       }
       case "close_terminal": {
@@ -1904,6 +1921,8 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
         return;
       case "cancel": {
         const id = request.args.id;
+        // The tool stopped waiting: stop the host's work too, so no timer keeps polling for it.
+        inFlight.get(`${sessionId}#${id}`)?.abort();
         // An `ask_user` call the extension no longer waits on (SPEC-0003, "生命周期").
         host.controller(sessionId)?.dropQuestion(id);
         const question = questions.get(sessionId)?.get(id);
@@ -1957,8 +1976,10 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
       const startedAt = clock.now();
       const work = (async () => {
         let reply: unknown;
+        const stopping = new AbortController();
+        inFlight.set(`${sessionId}#${request.id}`, stopping);
         try {
-          const result = await answer(sessionId, epoch, request);
+          const result = await answer(sessionId, epoch, request, stopping.signal);
           if (result === null) return;
           reply = { v: 1, id: request.id, ok: true, result };
         } catch (error) {
@@ -1971,6 +1992,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
             ...(Object.keys(failure.params).length === 0 ? {} : { params: failure.params }),
           };
         } finally {
+          inFlight.delete(`${sessionId}#${request.id}`);
           calls.delete(key);
           remember(process, request.id, reply);
         }

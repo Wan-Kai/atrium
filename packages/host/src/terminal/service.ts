@@ -120,7 +120,13 @@ export interface TerminalService {
    * Resolves once the screen has settled after it, so a caller can read the result straight away
    * instead of waiting by hand (SPEC-0009, "agent 操作终端").
    */
-  agentType(sessionId: string, terminalId: TerminalId, text: string, submit?: boolean): Promise<boolean>;
+  agentType(
+    sessionId: string,
+    terminalId: TerminalId,
+    text: string,
+    submit?: boolean,
+    signal?: AbortSignal,
+  ): Promise<boolean>;
   /**
    * Presses one named key: `enter`, `esc`, `ctrl-c`, `ctrl-d`, `tab`, `shift-tab` or an arrow.
    *
@@ -128,12 +134,17 @@ export interface TerminalService {
    * Keys that submit something wait for the screen to settle; arrows do not, so moving around a
    * menu stays quick.
    */
-  agentKey(sessionId: string, terminalId: TerminalId, key: AgentKey): Promise<boolean>;
+  agentKey(sessionId: string, terminalId: TerminalId, key: AgentKey, signal?: AbortSignal): Promise<boolean>;
   /** Waits until the terminal's output has been quiet, or it ended, or the time ran out. */
   agentWait(
     sessionId: string,
     terminalId: TerminalId,
-    options?: { readonly until?: "quiet" | "exited"; readonly quietMs?: number; readonly timeoutMs?: number },
+    options?: {
+      readonly until?: "quiet" | "exited";
+      readonly quietMs?: number;
+      readonly timeoutMs?: number;
+      readonly signal?: AbortSignal;
+    },
   ): Promise<{ readonly quiet: boolean; readonly exited: boolean; readonly exitCode: number | null }>;
   /** Ends a terminal the agent opened. */
   agentClose(sessionId: string, terminalId: TerminalId): Promise<void>;
@@ -493,20 +504,23 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
    * @sideEffects Schedules a polling timer until it ends.
    * @param entry - The terminal.
    * @param from - Its output count when the write happened.
+   * @param signal - Ends the wait when the tool call is stopped.
    * @returns Whether the screen settled.
    */
-  const settleAfter = (entry: Running, from: number): Promise<boolean> =>
+  const settleAfter = (entry: Running, from: number, signal?: AbortSignal): Promise<boolean> =>
     new Promise((resolve) => {
       const started = options.clock.now();
       /**
-       * Ends the wait once the screen is still, or the cap is reached.
+       * Ends the wait once the screen is still, or the cap is reached, or the call was stopped.
        *
        * @remarks
        * A program that has printed nothing since the write is not "settled": it has not started.
+       * An aborted call stops looking rather than leaving a timer behind.
        *
        * @sideEffects Resolves the promise, or schedules the next look.
        */
       const check = (): void => {
+        if (signal?.aborted === true) return resolve(false);
         const now = options.clock.now();
         if (entry.exited) return resolve(true);
         if (entry.outputs > from && now - entry.lastOutputAt >= AGENT_SETTLE_QUIET_MS) return resolve(true);
@@ -784,16 +798,16 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
       };
     },
 
-    async agentType(sessionId, terminalId, text, submit) {
+    async agentType(sessionId, terminalId, text, submit, signal) {
       const entry = mustOwnAgent(sessionId, terminalId);
       const from = entry.outputs;
       // A multi-line prompt typed as a paste stays one paste: the program does not submit at each newline.
       const body = entry.pasteEnabled ? `\u001b[200~${text}\u001b[201~` : text;
       write(entry, submit === true ? `${body}\r` : body);
-      return await settleAfter(entry, from);
+      return await settleAfter(entry, from, signal);
     },
 
-    async agentKey(sessionId, terminalId, key) {
+    async agentKey(sessionId, terminalId, key, signal) {
       const entry = mustOwnAgent(sessionId, terminalId);
       const bytes = AGENT_KEYS[key];
       // A key outside the table is a malformed request; the channel's schema refuses it first.
@@ -802,7 +816,7 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
       write(entry, bytes);
       // Moving inside a menu changes little; submitting a choice redraws everything after it.
       if (key === "up" || key === "down" || key === "left" || key === "right") return true;
-      return await settleAfter(entry, from);
+      return await settleAfter(entry, from, signal);
     },
 
     async agentWait(sessionId, terminalId, options2 = {}) {
@@ -826,6 +840,11 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
          * @sideEffects Resolves the wait, and schedules the next look when it is not over.
          */
         const check = (): void => {
+          // A stopped tool call stops waiting: nothing is left polling for it.
+          if (options2.signal?.aborted === true) {
+            resolve({ quiet: false, exited: false, exitCode: null });
+            return;
+          }
           const now = options.clock.now();
           if (entry.exited) {
             resolve({ quiet: false, exited: true, exitCode: entry.terminal.exitCode });

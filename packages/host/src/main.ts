@@ -510,8 +510,9 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
         return { terminalId: terminal.id, title: terminal.title, directory: terminal.cwd };
       },
       read: (sessionId, terminalId, lines) => requireTerminals().agentRead(sessionId, terminalId, lines),
-      type: (sessionId, terminalId, text, submit) => requireTerminals().agentType(sessionId, terminalId, text, submit),
-      key: (sessionId, terminalId, key) => requireTerminals().agentKey(sessionId, terminalId, key),
+      type: (sessionId, terminalId, text, submit, signal) =>
+        requireTerminals().agentType(sessionId, terminalId, text, submit, signal),
+      key: (sessionId, terminalId, key, signal) => requireTerminals().agentKey(sessionId, terminalId, key, signal),
       wait: (sessionId, terminalId, waitOptions) => requireTerminals().agentWait(sessionId, terminalId, waitOptions),
       close: (sessionId, terminalId) => requireTerminals().agentClose(sessionId, terminalId),
     },
