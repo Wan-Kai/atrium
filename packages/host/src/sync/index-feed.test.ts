@@ -14,6 +14,7 @@ import { type EventSink, SubscriptionRegistry } from "./subscriptions";
 const PREFERENCES: Preferences = {
   setupDone: false,
   appearance: "system",
+  defaultModel: null,
   lastModel: null,
   thinkingByModel: {},
   lastFast: false,

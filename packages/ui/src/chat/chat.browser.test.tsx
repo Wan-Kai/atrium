@@ -2375,6 +2375,7 @@ describe("ConversationArea's model button", () => {
         preferences: {
           setupDone: true,
           appearance: "system",
+          defaultModel: null,
           lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
           thinkingByModel: { "anthropic/claude-opus-5-5": "medium" },
           translationLanguage: "简体中文",
@@ -2648,6 +2649,7 @@ describe("ConversationArea's Fast button", () => {
         preferences: {
           setupDone: true,
           appearance: "system",
+          defaultModel: null,
           lastModel: { providerId: "openai-codex", modelId: "gpt-5.5" },
           thinkingByModel: {},
           translationLanguage: "简体中文",

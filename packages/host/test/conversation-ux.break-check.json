@@ -1,0 +1,52 @@
+[
+  {
+    "file": "packages/host/src/sessions/agent-relay.ts",
+    "from": "const entry = known ?? find(sessionId);",
+    "to": "const entry = find(sessionId);",
+    "test": "packages/host/src/sessions/agent-relay.test.ts",
+    "name": "summarizes a session it is already given without looking it up in the catalog again"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "...relay.summary(entry.sessionId, full),",
+    "to": "...relay.summary(entry.sessionId),",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "lists sessions reading the catalog once, without looking each one up again"
+  },
+  {
+    "file": "packages/host/src/sessions/layouts.ts",
+    "from": "      .slice(0, KEPT_CLIENTS);\n    options.file.save({ ...document, clients }).catch((error: unknown) => {",
+    "to": "      .slice(0, KEPT_CLIENTS);\n    await options.file.save({ ...document, clients }).catch((error: unknown) => {",
+    "test": "packages/host/src/sessions/layouts.test.ts",
+    "name": "keeps a change in memory while the file is written in the background, and flush writes it"
+  },
+  {
+    "file": "packages/host/src/store/preferences.ts",
+    "from": "if (defaultModel !== null && defaultModel !== undefined) {",
+    "to": "if (false) {",
+    "test": "packages/host/src/store/preferences.test.ts",
+    "name": "starts new sessions on the default model and level over the one chosen last"
+  },
+  {
+    "file": "packages/ui/src/chat/model-choice.ts",
+    "from": "const byDefault = preferences.defaultModel ?? null;",
+    "to": "const byDefault = null;",
+    "test": "packages/ui/src/chat/model-choice.test.ts",
+    "name": "shows the default model and its level over the one chosen last"
+  },
+  {
+    "file": "packages/host/src/sessions/session-manager.ts",
+    "from": "} else if (entry !== null && entry.file !== null) {",
+    "to": "} else if (false) {",
+    "test": "packages/host/src/sessions/session-manager.test.ts",
+    "name": "shows a session on file from the file at once, before its pi starts, and lets the copy go after"
+  },
+  {
+    "file": "packages/host/src/sessions/stopped-edit.ts",
+    "from": "for (let attempt = 0; !replaced(disk) && attempt < REPLACEMENT_ATTEMPTS; attempt += 1) {",
+    "to": "for (let attempt = 0; false; attempt += 1) {",
+    "test": "packages/host/src/sessions/stopped-edit.test.ts",
+    "name": "waits for the replacement pi appended to reach the session file",
+    "project": "unit"
+  }
+]

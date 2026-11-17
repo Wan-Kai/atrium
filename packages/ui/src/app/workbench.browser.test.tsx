@@ -2005,7 +2005,7 @@ describe("Workbench child conversations (SPEC-0002)", () => {
   it("opens an empty child of the active session from the + menu", async () => {
     const { screen } = await workbench({ initial: family() });
 
-    await screen.getByRole("button", { name: "新建", exact: true }).click();
+    await screen.getByRole("button", { name: "新建（⌘T 为新会话）" }).click();
     await screen.getByRole("menuitem", { name: /子对话/ }).click();
     expect(pageNewChild().getState()).toStrictEqual({ parentSessionId: "k1", turnId: null });
   });
@@ -2013,7 +2013,7 @@ describe("Workbench child conversations (SPEC-0002)", () => {
   it("offers no child from the + menu under a draft", async () => {
     const { screen } = await workbench({ initial: draftedFamily() });
 
-    await screen.getByRole("button", { name: "新建", exact: true }).click();
+    await screen.getByRole("button", { name: "新建（⌘T 为新会话）" }).click();
     await expect.element(screen.getByRole("menuitem", { name: /子对话/ })).toBeDisabled();
   });
 
@@ -2083,7 +2083,8 @@ describe("Workbench tabs", () => {
   it("creates a session in the workspace with +, then as a draft in a new tab", async () => {
     const { screen, calls } = await workbench();
 
-    await screen.getByRole("button", { name: "新建会话（⌘T）" }).click();
+    await screen.getByRole("button", { name: "新建（⌘T 为新会话）" }).click();
+    await screen.getByRole("menuitem", { name: /^新会话/ }).click();
 
     await vi.waitFor(() => expect(calls).toContain(`createSession ${LOCAL}`));
     await expect.element(screen.getByRole("tab").nth(2)).toHaveTextContent("新会话");
@@ -2527,7 +2528,8 @@ describe("Workbench keys and focus", () => {
 
     await userEvent.keyboard("{Meta>}t{/Meta}");
     await vi.waitFor(() => expect(calls).toContain(`createSession ${CHAT}`));
-    await screen.getByRole("button", { name: "新建会话（⌘T）" }).click();
+    await screen.getByRole("button", { name: "新建（⌘T 为新会话）" }).click();
+    await screen.getByRole("menuitem", { name: /^新会话/ }).click();
     await vi.waitFor(() =>
       expect(calls.filter((call) => call.startsWith("create"))).toStrictEqual([
         `createSession ${CHAT}`,

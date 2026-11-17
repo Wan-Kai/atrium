@@ -19,7 +19,10 @@ export interface PreferenceStore {
   remember(model: SessionModel): Promise<void>;
   /** Remembers Fast switched on or off in a session, for the sessions without their own (SPEC-0001, "Fast"). */
   rememberFast(enabled: boolean): Promise<void>;
-  /** The model new sessions start with: the last one chosen, with its thinking level if remembered. */
+  /**
+   * The model and level new sessions start with: the default chosen in the settings, else the model
+   * chosen last and its remembered level.
+   */
   preferred(): { readonly model: ModelRef; readonly thinkingLevel: ThinkingLevel | null } | null;
 }
 
@@ -28,7 +31,8 @@ export interface PreferenceStore {
  *
  * @remarks
  * Appearance follows the system until changed (SPEC-0001, "外观"). The model chosen last in any session, and each model's thinking level, are
- * what new sessions start with (SPEC-0001, "模型与输入框"). The status bar's choices, an optional
+ * what new sessions start with unless a default model is chosen in the settings (SPEC-0001, "模型与输入框").
+ * The status bar's choices, an optional
  * field added in M1.8 without a new version, read as none; an id no group could have, as a hand
  * may write, is left out of what is read (SPEC-0001, "状态栏（M1.8）"). First launch is still to do,
  * and sessions are named with their own model, until told otherwise; a file from before M1.10, without
@@ -49,6 +53,7 @@ export function createPreferenceStore(file: IndexFile<PreferencesDocument>): Pre
         appearance,
         lastModel,
         thinkingByModel,
+        defaultModel = null,
         lastFast = false,
         statusBar = {},
         titleModel = null,
@@ -63,6 +68,7 @@ export function createPreferenceStore(file: IndexFile<PreferencesDocument>): Pre
         appearance,
         lastModel,
         thinkingByModel,
+        defaultModel,
         lastFast,
         statusBar: Object.fromEntries(groups),
         titleModel,
@@ -82,7 +88,14 @@ export function createPreferenceStore(file: IndexFile<PreferencesDocument>): Pre
     },
     rememberFast: (enabled) => file.save({ ...file.read(), lastFast: enabled }),
     preferred() {
-      const { lastModel, thinkingByModel } = file.read();
+      const { defaultModel, lastModel, thinkingByModel } = file.read();
+      if (defaultModel !== null && defaultModel !== undefined) {
+        const remembered = thinkingByModel[`${defaultModel.providerId}/${defaultModel.modelId}`] ?? null;
+        return {
+          model: { providerId: defaultModel.providerId, modelId: defaultModel.modelId },
+          thinkingLevel: defaultModel.thinkingLevel ?? remembered,
+        };
+      }
       if (lastModel === null) return null;
       return {
         model: lastModel,

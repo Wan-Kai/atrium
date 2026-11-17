@@ -522,14 +522,15 @@ describe("opening a task's own session without a tab (open_task_session, T8a)", 
     const { client } = harness;
     const passed = await harness.until(task.id, (now) => latestRunOf(now, "H1")?.state === "waiting");
     const nodeSession = present(latestRunOf(passed, "N1")?.sessionId, "the node's session");
-    // Its pi was stopped when the node passed, so watching it alone brings no snapshot.
+    // Its pi was stopped when the node passed: the session's file shows at once, in epoch 0.
     await client.watch([nodeSession]);
-    expect(client.session(nodeSession)?.getState().status).not.toBe("ready");
+    expect(client.session(nodeSession)?.getState()).toMatchObject({ status: "ready", epoch: 0 });
     const before = JSON.stringify(harness.task(task.id));
 
     await client.openTaskSession(task.id, nodeSession);
 
-    await vi.waitFor(() => expect(client.session(nodeSession)?.getState().status).toBe("ready"));
+    await vi.waitFor(() => expect(client.session(nodeSession)?.getState().epoch).toBe(1));
+    expect(client.session(nodeSession)?.getState().status).toBe("ready");
     expect(client.session(nodeSession)?.getState().items.length).toBeGreaterThan(0);
     expect(JSON.stringify(harness.task(task.id))).toBe(before);
     // And it is no tab or list entry of the project.

@@ -192,7 +192,7 @@ classDiagram
 └── logs/
 ```
 
-- **写入**：先写同目录下的临时文件并 fsync，再 rename 覆盖，最后 fsync 目录。同一个文件的写入串行；写入期间又有变化，当前这次写完后用最新内容再写一次，不排长队。
+- **写入**：先写同目录下的临时文件并 fsync，再 rename 覆盖，最后 fsync 目录。同一个文件的写入串行；写入期间又有变化，当前这次写完后用最新内容再写一次，不排长队。`layouts.json` 的改动先在内存生效、写入在后台进行，命令不等磁盘（切标签、新建会话不再等一次 fsync）；宿主关闭时 `flush` 写回，硬崩溃可能丢掉最后一次标签变化。2026-11-17 改：原先每次改动都等写完，磁盘慢时点"+"要等一两秒。
 - **格式版本**：每个文件顶层带 `version`。只新增可选字段时不升版本（参照 Paseo）；读文件时保留不认识的字段，写回时原样带上，降级再升级不丢数据。
   - 版本比当前程序旧：先把原文件复制成 `<名字>.v<旧版本>.bak`，按迁移函数逐级升级，再写回。
   - 版本比当前程序新（装回了旧版 Atrium）：宿主拒绝启动，日志和标准错误里写明哪个文件、哪个版本。不降级改写，避免丢掉新版本的数据。v0.1 不发布安装包，这种情况只在开发时出现；界面上的提示等 M1.10 的启动检查再做。
@@ -562,6 +562,7 @@ classDiagram
       statusBar: StatusGroupId[]
       lastModel: ModelRef?
       thinkingByModel
+      defaultModel: DefaultModel?
       lastFast
       titleModel: ModelRef?
       translationLanguage: string
@@ -609,7 +610,7 @@ classDiagram
 - **ModelRef** 用"服务商 + 模型 id"联合标识。推理档位是字符串列表，来自 pi 对该模型的能力查询（pi 的档位包括 off / minimal / low / medium / high / xhigh / max，具体有哪些由模型决定），推理强度框按实际档位数画格子。
 - **Provider** 区分"支持哪些登录方式"和"当前凭据状态"，有凭据不等于登录有效。
 - **PiCatalog** 不依赖任何会话进程：空工作区、首次启动、模型按钮都要用。照 Paseo 的做法，按目录短启一个 pi 查 `get_available_models` 和 `get_state`，结果按目录缓存在内存里，只有"刷新"才重查；推理档位按模型元数据算出（SPEC-0001"模型与输入框"，2026-10-10 定）。`/` 命令不归它：每个会话问自己的 pi，没启动就启动（2026-10-10 定，原先打算按目录短启 pi 查询）。
-- **Preferences** 的 `lastModel` 和 `thinkingByModel`（推理强度按模型各记一份）在任何会话里换模型或推理强度时更新；新会话启动 pi 后由宿主用 `set_model`、`set_thinking_level` 设上，不用 `--model` 启动（pi 解析不出 `--model` 会直接退出）。
+- **Preferences** 的 `lastModel` 和 `thinkingByModel`（推理强度按模型各记一份）在任何会话里换模型或推理强度时更新；`defaultModel`（模型 + 档位）在设置里选，不随会话改变，新会话优先用它（2026-11-17 加，SPEC-0001"模型与输入框"）。新会话启动 pi 后由宿主用 `set_model`、`set_thinking_level` 设上，不用 `--model` 启动（pi 解析不出 `--model` 会直接退出）。
 - **回复翻译**（M1.11 自用后补充）：Preferences 的 `translationLanguage` 是全局目标语言，默认“简体中文”，只在保存成功后更新。译文不是会话历史或条目，不属于 agent 上下文，既不写索引也不写 pi 文件。宿主按本会话当前分支找到已结束的轮、取正文与当前模型，用独立一次性 pi 翻译；执行按连接和操作 id 管理并可取消，连接断开或宿主关闭清理。界面只把译文留在挂载的回复组件里，收起可再展开，卸载、源正文或目标语言变化时清掉。
 - **Fast**（M1.11，ADR-0008）：开关属于会话，记在会话的记录里（`fast`），Runtime 里也有一份，随快照发出；`lastFast` 在任何会话里开关时更新，没有记录的会话按它取。模型支不支持 Fast 是 Model 的 `fast`（速度倍数和是否多耗额度，不支持为空），取自 Codex 的模型列表，查不到时按 `packages/pi` 的内置规则。开关经 Atrium 自带的 pi 扩展生效，pi 每次启动后由宿主补发。
 - **没有可用模型时 pi 的 RPC 模式照常启动**，只是模型是占位的 `unknown/unknown`、`prompt` 报错（2026-10-10 实测，原先以为会直接退出），登录状态不适合靠 RPC 查：首次启动用 `pi auth check --json`，或在锁下读 `~/.pi/agent/auth.json`。RPC 也没有登录命令，登录由宿主用系统 Node 运行 `packages/pi` 的登录程序，它加载用户装的 pi 包里的 `ModelRuntime` 完成（2026-10-10 验证并定，SPEC-0001"第 2 步"）；登录状态也由它一次查齐，不必按服务商逐个运行 `pi auth check`。

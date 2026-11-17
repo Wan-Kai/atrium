@@ -64,6 +64,7 @@ describe("PreferenceStore", () => {
       appearance: "system",
       lastModel: null,
       thinkingByModel: {},
+      defaultModel: null,
       lastFast: false,
       statusBar: {},
       titleModel: null,
@@ -80,6 +81,7 @@ describe("PreferenceStore", () => {
       appearance: "dark",
       lastModel: null,
       thinkingByModel: {},
+      defaultModel: null,
       lastFast: false,
       statusBar: {},
       titleModel: null,
@@ -108,6 +110,7 @@ describe("PreferenceStore", () => {
       appearance: "system",
       lastModel: { providerId: "anthropic", modelId: "claude-opus-5-5" },
       thinkingByModel: { "anthropic/claude-opus-5-5": "max", "openai/gpt-6": "low" },
+      defaultModel: null,
       lastFast: false,
       statusBar: {},
       titleModel: null,
@@ -130,6 +133,53 @@ describe("PreferenceStore", () => {
     await store.set({ lastModel: { providerId: "openai", modelId: "gpt-6" } });
 
     expect(store.preferred()).toStrictEqual({ model: { providerId: "openai", modelId: "gpt-6" }, thinkingLevel: null });
+  });
+
+  it("starts new sessions on the default model and level over the one chosen last", async () => {
+    const index = await indexDirectory();
+    const store = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
+    await store.remember({ providerId: "sankuai-openai", modelId: "glm-5.2", thinkingLevel: "medium" });
+    await store.remember({ providerId: "catpaw-cli", modelId: "deepseek-v4.1-flash", thinkingLevel: "low" });
+
+    await store.set({
+      defaultModel: { providerId: "catpaw-cli", modelId: "deepseek-v4.1-flash", thinkingLevel: "high" },
+    });
+
+    expect(store.preferred()).toStrictEqual({
+      model: { providerId: "catpaw-cli", modelId: "deepseek-v4.1-flash" },
+      thinkingLevel: "high",
+    });
+  });
+
+  it("uses the level a default model was last given when its own is left out", async () => {
+    const index = await indexDirectory();
+    const store = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
+    await store.remember({ providerId: "catpaw-cli", modelId: "deepseek-v4.1-flash", thinkingLevel: "low" });
+
+    await store.set({
+      defaultModel: { providerId: "catpaw-cli", modelId: "deepseek-v4.1-flash", thinkingLevel: null },
+    });
+
+    expect(store.preferred()).toStrictEqual({
+      model: { providerId: "catpaw-cli", modelId: "deepseek-v4.1-flash" },
+      thinkingLevel: "low",
+    });
+  });
+
+  it("goes back to the model chosen last when the default is cleared", async () => {
+    const index = await indexDirectory();
+    const store = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
+    await store.remember({ providerId: "openai", modelId: "gpt-6", thinkingLevel: "max" });
+    await store.set({
+      defaultModel: { providerId: "catpaw-cli", modelId: "deepseek-v4.1-flash", thinkingLevel: "high" },
+    });
+
+    await store.set({ defaultModel: null });
+
+    expect(store.preferred()).toStrictEqual({
+      model: { providerId: "openai", modelId: "gpt-6" },
+      thinkingLevel: "max",
+    });
   });
 
   it("remembers Fast as last switched, off until then, also in a file from before it", async () => {
@@ -163,6 +213,7 @@ describe("PreferenceStore", () => {
       appearance: "light",
       lastModel: null,
       thinkingByModel: {},
+      defaultModel: null,
       lastFast: false,
       statusBar: {},
       titleModel: null,

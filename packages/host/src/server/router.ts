@@ -303,6 +303,7 @@ export function createRouter(options: RouterOptions): Route {
           ...(command.appearance === undefined ? {} : { appearance: command.appearance }),
           ...(command.statusBar === undefined ? {} : { statusBar: command.statusBar }),
           ...(command.titleModel === undefined ? {} : { titleModel: command.titleModel }),
+          ...(command.defaultModel === undefined ? {} : { defaultModel: command.defaultModel }),
           ...(command.proxy === undefined ? {} : { proxy: command.proxy }),
           ...(command.inbox === undefined ? {} : { inbox: command.inbox }),
           ...(command.translationLanguage === undefined ? {} : { translationLanguage: command.translationLanguage }),

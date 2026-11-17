@@ -85,30 +85,53 @@ export function coverageOf(level: ThinkingLevel | null, levels: readonly Thinkin
 }
 
 /**
+ * The level pi starts a model on when none was chosen: medium, kept within what it supports.
+ *
+ * @remarks
+ * pi's own default (pi-internals.md §4); shown until the session reports its level, and what a new
+ * default model starts on.
+ *
+ * @sideEffects none
+ * @param levels - The model's levels.
+ * @returns The level.
+ */
+export function defaultLevel(levels: readonly ThinkingLevel[]): ThinkingLevel {
+  if (levels.includes("medium")) return "medium";
+  return levels.find((level) => level === "high" || level === "xhigh" || level === "max") ?? levels.at(-1) ?? "off";
+}
+
+/**
  * The model to show on the button.
  *
  * @remarks
  * The session's own once its pi reports it; before that, the model a new session will start on:
- * the one chosen last, with its remembered level, or else pi's own default (SPEC-0001,
- * "模型与输入框"). The catalog fills in the name, levels, image support and Fast (SPEC-0001,
- * "Fast"); a model it does not list goes by its id, without Fast.
+ * the default chosen in the settings, else the one chosen last, with its remembered level, or else
+ * pi's own default (SPEC-0001, "模型与输入框"). The catalog fills in the name, levels, image
+ * support and Fast (SPEC-0001, "Fast"); a model it does not list goes by its id, without Fast.
  *
  * @sideEffects none
  * @param session - The session's model, if known.
- * @param preferences - The model chosen last and the levels remembered.
+ * @param preferences - The default model, the one chosen last and the levels remembered.
  * @param list - The container's models.
  * @returns The model, or `null` when there is nothing to show.
  */
 export function shownModel(
   session: SessionModel | null,
-  preferences: Pick<Preferences, "lastModel" | "thinkingByModel">,
+  preferences: Pick<Preferences, "defaultModel" | "lastModel" | "thinkingByModel">,
   list: ModelListView,
 ): ShownModel | null {
   let ref: ModelRef | null = session;
   let level: ThinkingLevel | null = session?.thinkingLevel ?? null;
-  if (ref === null && preferences.lastModel !== null) {
-    ref = preferences.lastModel;
-    level = preferences.thinkingByModel[`${ref.providerId}/${ref.modelId}`] ?? null;
+  if (ref === null) {
+    const byDefault = preferences.defaultModel ?? null;
+    if (byDefault !== null) {
+      ref = byDefault;
+      const remembered = preferences.thinkingByModel[`${ref.providerId}/${ref.modelId}`] ?? null;
+      level = byDefault.thinkingLevel ?? remembered;
+    } else if (preferences.lastModel !== null) {
+      ref = preferences.lastModel;
+      level = preferences.thinkingByModel[`${ref.providerId}/${ref.modelId}`] ?? null;
+    }
   }
   ref ??= list.defaultModel;
   if (ref === null) return null;

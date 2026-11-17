@@ -256,7 +256,11 @@ export function pageModel(
   preferences: Parameters<typeof shownModel>[1],
   list: Parameters<typeof shownModel>[2],
 ): ShownModel | null {
-  const shown = shownModel(null, model.ref === null ? preferences : { ...preferences, lastModel: model.ref }, list);
+  const shown = shownModel(
+    null,
+    model.ref === null ? preferences : { ...preferences, defaultModel: null, lastModel: model.ref },
+    list,
+  );
   return shown === null || model.level === null ? shown : { ...shown, level: model.level };
 }
 

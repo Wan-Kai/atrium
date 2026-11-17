@@ -23,6 +23,21 @@ const restored: EntriesPage = {
 };
 
 /**
+ * Takes the next page the file shows, or the last when its scripted reads are done.
+ *
+ * @remarks
+ * A test helper, so the polling loop's extra reads have a page to see.
+ *
+ * @sideEffects Removes the first page.
+ * @param pages - The pages scripted.
+ * @param last - What every later read sees.
+ * @returns The page.
+ */
+function nextDisk(pages: EntriesPage[], last: EntriesPage): EntriesPage {
+  return pages.shift() ?? last;
+}
+
+/**
  * A pi boundary with deterministic branch reads and a caller-visible submit.
  * @remarks Tests the transaction without mocking any host modules.
  * @sideEffects none until its returned callbacks are called.
@@ -66,11 +81,82 @@ function transaction() {
       commit();
       return "started";
     },
+    wait: async () => undefined,
   };
   return { options, pages, commands, shown, commit, stopped: () => stopped, submits: () => submits };
 }
 
 describe("editing a stopped branch", () => {
+  it("waits for the replacement pi appended to reach the session file", async () => {
+    const rewoundPage: EntriesPage = { entries: [original, anchor], leafId: null };
+    const replacement: LogEntry = { ...original, id: "u2", text: "correct" };
+    const committed: EntriesPage = { entries: [original, anchor, replacement], leafId: "u2" };
+    let live: EntriesPage = before;
+    const diskPages = [before, rewoundPage, rewoundPage];
+    const commands: string[] = [];
+    const shown: EntriesPage[] = [];
+    const result = await editStoppedBranch({
+      pi: {
+        command: async (message: string) => {
+          commands.push(message);
+          live = rewoundPage;
+        },
+        getEntries: async () => live,
+        readPersistedEntries: async () => nextDisk(diskPages, committed),
+        stop: async () => undefined,
+      },
+      entryId: "u1",
+      token: "operation-1",
+      onBranch: (page: EntriesPage) => {
+        shown.push(page);
+      },
+      send: async () => {
+        live = committed;
+        return "started";
+      },
+      wait: async () => undefined,
+    });
+
+    expect(result).toStrictEqual({ disposition: "started" });
+    expect(shown).toStrictEqual([rewoundPage]);
+    expect(commands).toHaveLength(1);
+  });
+
+  it("stops pi when the replacement never reaches the session file", async () => {
+    const rewoundPage: EntriesPage = { entries: [original, anchor], leafId: null };
+    const replacement: LogEntry = { ...original, id: "u2", text: "correct" };
+    const committed: EntriesPage = { entries: [original, anchor, replacement], leafId: "u2" };
+    let live: EntriesPage = before;
+    let stopped = false;
+    const shown: EntriesPage[] = [];
+    await expect(
+      editStoppedBranch({
+        pi: {
+          command: async () => {
+            live = rewoundPage;
+          },
+          getEntries: async () => live,
+          readPersistedEntries: async () => rewoundPage,
+          stop: async () => {
+            stopped = true;
+          },
+        },
+        entryId: "u1",
+        token: "operation-1",
+        onBranch: (page: EntriesPage) => {
+          shown.push(page);
+        },
+        send: async () => {
+          live = committed;
+          return "started";
+        },
+        wait: async () => undefined,
+      }),
+    ).rejects.toStrictEqual(new CommandError("edit_failed"));
+    expect(stopped).toBe(true);
+    expect(shown).toStrictEqual([rewoundPage, rewoundPage]);
+  });
+
   it("confirms the rewind before sending and publishes the new branch", async () => {
     const test = transaction();
     expect(await editStoppedBranch(test.options)).toStrictEqual({ disposition: "started" });

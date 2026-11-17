@@ -8,13 +8,14 @@ import type {
   MessageTag,
   ModelListView,
   SessionView,
+  TerminalsView,
   SetupView,
   RemoteView,
   SchedulesView,
   TaskState,
   TasksView,
 } from "@atrium/client";
-import { isDirectionId, loadingView } from "@atrium/client";
+import { NO_TERMINALS, isDirectionId, loadingView } from "@atrium/client";
 import {
   type Chat,
   type ChildPlacement,
@@ -404,6 +405,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
   const diff = createStore<DiffView>(() => ({ target: null, status: "idle", files: [], tooLarge: false, error: null }));
   const modelLists = new Map<string | null, StoreApi<ModelListView>>();
   const views = new Map<string, StoreApi<SessionView>>();
+  const terminals = createStore<TerminalsView>(() => NO_TERMINALS);
   /** The run control the host's snapshot of a session carries, when a test gives it one; idle otherwise. */
   const controls = new Map<string, Control>(Object.entries(answers.controls ?? {}));
   /** The sessions still without a pi; watching them brings no snapshot. */
@@ -421,6 +423,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     preferences: {
       setupDone: true,
       appearance: "system",
+      defaultModel: null,
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
@@ -1240,6 +1243,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     installJob,
     plans,
+    terminals,
     async updatePi() {
       calls.push("updatePi");
       await answers.updatePi?.();

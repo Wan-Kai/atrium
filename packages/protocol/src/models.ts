@@ -43,6 +43,10 @@ export const CatalogModel = z.strictObject({
 });
 export type CatalogModel = z.infer<typeof CatalogModel>;
 
+/** A model to start new sessions with, and how hard it thinks; `null` for the level to follow the model's own. */
+export const DefaultModel = z.strictObject({ ...ModelRef.shape, thinkingLevel: ThinkingLevel.nullable() });
+export type DefaultModel = z.infer<typeof DefaultModel>;
+
 /** The model a session's pi uses now, and how hard it thinks. */
 export const SessionModel = z.strictObject({ ...ModelRef.shape, thinkingLevel: ThinkingLevel });
 export type SessionModel = z.infer<typeof SessionModel>;

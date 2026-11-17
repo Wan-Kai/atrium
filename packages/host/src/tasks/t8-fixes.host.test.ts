@@ -172,11 +172,12 @@ describe("a message into a task conversation whose pi is not running (T8 review 
     const { client } = harness;
     const sid = task.taskSessionId;
     await client.watch([sid]);
-    expect(client.session(sid)?.getState().status).not.toBe("ready");
+    // Its file shows at once, without a pi; the message starts one and its snapshot takes over.
+    expect(client.session(sid)?.getState()).toMatchObject({ status: "ready", epoch: 0 });
 
     await client.prompt(sid, "where are we?");
 
-    await vi.waitFor(() => expect(client.session(sid)?.getState().status).toBe("ready"));
+    await vi.waitFor(() => expect(client.session(sid)?.getState().epoch).toBe(1));
     await vi.waitFor(() => {
       const items = JSON.stringify(client.session(sid)?.getState().items);
       expect(items).toContain("where are we?");

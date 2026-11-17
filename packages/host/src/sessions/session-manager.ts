@@ -2392,24 +2392,29 @@ export function createSessionManager(options: {
           snapshots.set(sessionId, controller.snapshot());
         } else if (entry?.state === "draft") {
           snapshots.set(sessionId, draftSnapshot(sessionId, fastOf(entry), options.newStream()));
-        } else if (entry !== null && viewOnly(entry)) {
-          const read = await readOnly.snapshot(entry, fastOf(entry)).catch((error: unknown) => {
-            // Shown as a session on file not started yet: nothing until it can be.
-            options.logger.warn({ sessionId, code: errorCode(error) }, "read-only session not read");
-            return null;
-          });
-          // Its direction restored and its pi started during the read: the live one is what shows.
+        } else if (entry !== null && entry.file !== null) {
+          // A session on file whose pi has not started: what its file holds shows at once, in
+          // epoch 0, and the pi's snapshot replaces it when it starts (SPEC-0001, "对话记录的同步").
+          const read = await readOnly
+            .snapshot({ sessionId, file: entry.file, model: entry.model }, fastOf(entry))
+            .catch((error: unknown) => {
+              // Nothing shows until a pi can start it, which `open_session` does.
+              options.logger.warn({ sessionId, code: errorCode(error) }, "session file not read");
+              return null;
+            });
+          // Its pi started during the read: the live one is what shows.
           const now = sessions.get(sessionId)?.controller.snapshot() ?? read;
           if (now !== null) snapshots.set(sessionId, now);
         } else if (entry !== null) {
-          // Its direction is restored: a copy read while it was archived is old now.
+          // Nothing to show from, and a copy read before can only be old now.
           readOnly.forget([sessionId]);
         }
-        // A session on file whose pi has not started yet is watched already; its snapshot follows
-        // once `open_session` or a message starts it (SPEC-0001, "项目、工作区与会话").
       }
       for (const sessionId of options.subscriptions.subscribe(connectionId, sessionIds, budget)) {
-        const snapshot = snapshots.get(sessionId);
+        // A pi that started between the read and here replaces the file's copy, and the copy goes.
+        const liveController = sessions.get(sessionId)?.controller;
+        if (liveController !== undefined) readOnly.forget([sessionId]);
+        const snapshot = liveController?.snapshot() ?? snapshots.get(sessionId);
         if (snapshot === undefined) continue;
         // A phone continues from its copy when the ring has every event since (SPEC-0005, "协议改动" 3).
         const point = resume.find((candidate) => candidate.sessionId === sessionId);
@@ -2782,8 +2787,8 @@ export function createSessionManager(options: {
       return options.catalog
         .list()
         .filter((entry) => entry.task === null)
-        .map(
-          ({
+        .map((full) => {
+          const {
             task: _task,
             cwd: _cwd,
             fast: _fast,
@@ -2793,15 +2798,17 @@ export function createSessionManager(options: {
             deliveries: _deliveries,
             archivedWith: _archivedWith,
             ...entry
-          }) => ({
+          } = full;
+          return {
             ...entry,
             running: busy.has(entry.sessionId),
             asking: askingSince(entry.sessionId),
             question: askingNames.get(entry.sessionId) ?? null,
-            ...relay.summary(entry.sessionId),
+            // Its agent fields are the ones this catalog entry already holds: no second lookup.
+            ...relay.summary(entry.sessionId, full),
             kickoff: kickoffOf(entry.sessionId),
-          }),
-        );
+          };
+        });
     },
     async stopIdle() {
       // pi was updated: a session's next use starts the new one (SPEC-0001, "首次启动 · 接口").
@@ -2991,6 +2998,8 @@ export function createSessionManager(options: {
       // Controllers first, so restarts under way stop rather than start pi again.
       await Promise.all([...sessions.values()].map(({ controller }) => controller.shutdown()));
       await Promise.all([...running].map((pi) => pi.stop()));
+      // File copies kept for showing them go too, their resources with them.
+      readOnly.evict(() => false);
       await Promise.all([...background, titlesClosed, childrenUsage.close()]);
     },
   };
@@ -3053,15 +3062,15 @@ export function createSessionManager(options: {
    * Whether fetches for a session go to its read-only copy.
    *
    * @remarks
-   * Only while its direction is archived and no pi runs it.
+   * While no pi runs it and its file was read for showing it: a direction's archived session, or
+   * any session whose pi has not started yet.
    *
    * @sideEffects none
    * @param sessionId - The session.
    * @returns Whether.
    */
   function readable(sessionId: string): boolean {
-    const entry = options.catalog.find(sessionId);
-    return !sessions.has(sessionId) && entry !== undefined && viewOnly(entry) && readOnly.has(sessionId);
+    return !sessions.has(sessionId) && readOnly.has(sessionId);
   }
 
   /**

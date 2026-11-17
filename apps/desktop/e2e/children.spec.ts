@@ -108,7 +108,7 @@ test("forks a child into a new worktree, which is told where it works, and archi
 
     await window.getByRole("navigation", { name: "子对话的位置" }).getByRole("button", { name: "一" }).click();
     await expect(window.getByTestId("workspace-row").nth(0)).toHaveAttribute("aria-current", "true");
-    await window.getByRole("button", { name: "新建", exact: true }).click();
+    await window.getByRole("button", { name: "新建（⌘T 为新会话）" }).click();
     await window.getByRole("menuitem", { name: /子对话/ }).click();
     await window.getByRole("dialog", { name: "开子对话" }).getByRole("button", { name: "开子对话" }).click();
     await expect(window.getByRole("tab")).toHaveText(["一", "子对话 2"], { timeout: 30_000 });

@@ -41,8 +41,8 @@ const pairing = {
 };
 
 describe("the coordinated remote contract", () => {
-  it("uses version 41, which adds the embedded terminal on the desktop only (SPEC-0009)", () => {
-    expect(PROTOCOL_VERSION).toBe(41);
+  it("uses version 42, which adds the default model new sessions start with (SPEC-0001)", () => {
+    expect(PROTOCOL_VERSION).toBe(42);
   });
 
   it.each([

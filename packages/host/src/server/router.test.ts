@@ -758,6 +758,26 @@ describe("createRouter", () => {
     ]);
   });
 
+  it("routes a default model for new sessions, with its thinking level or without", async () => {
+    const { route, connection, calls } = setUp();
+    await route(
+      connection,
+      withTrace({
+        type: "set_preferences",
+        defaultModel: { providerId: "catpaw-cli", modelId: "deepseek-v4.1-flash", thinkingLevel: "high" },
+      }),
+    );
+    await route(connection, withTrace({ type: "set_preferences", defaultModel: null }));
+
+    expect(calls).toStrictEqual([
+      [
+        "setPreferences",
+        { defaultModel: { providerId: "catpaw-cli", modelId: "deepseek-v4.1-flash", thinkingLevel: "high" } },
+      ],
+      ["setPreferences", { defaultModel: null }],
+    ]);
+  });
+
   it("routes a stopped edit with its revision without using ordinary prompt", async () => {
     const { route, connection, calls, sent } = setUp();
     await route(

@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 41,
+    "protocolVersion": 42,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -1656,6 +1656,11 @@
         "anthropic/claude-opus-5-5": "high",
         "faux/faux-1": "off"
       },
+      "defaultModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "thinkingLevel": "high"
+      },
       "lastFast": true,
       "statusBar": {
         "cost": true,
@@ -2189,6 +2194,11 @@
       "thinkingByModel": {
         "anthropic/claude-opus-5-5": "high",
         "faux/faux-1": "off"
+      },
+      "defaultModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "thinkingLevel": "high"
       },
       "lastFast": true,
       "statusBar": {
@@ -3715,6 +3725,11 @@
         "anthropic/claude-opus-5-5": "high",
         "faux/faux-1": "off"
       },
+      "defaultModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "thinkingLevel": "high"
+      },
       "lastFast": true,
       "statusBar": {
         "cost": true,
@@ -4186,6 +4201,11 @@
       "thinkingByModel": {
         "anthropic/claude-opus-5-5": "high",
         "faux/faux-1": "off"
+      },
+      "defaultModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "thinkingLevel": "high"
       },
       "lastFast": true,
       "statusBar": {
@@ -4659,6 +4679,11 @@
         "anthropic/claude-opus-5-5": "high",
         "faux/faux-1": "off"
       },
+      "defaultModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "thinkingLevel": "high"
+      },
       "lastFast": true,
       "statusBar": {
         "cost": true,
@@ -5130,6 +5155,11 @@
       "thinkingByModel": {
         "anthropic/claude-opus-5-5": "high",
         "faux/faux-1": "off"
+      },
+      "defaultModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "thinkingLevel": "high"
       },
       "lastFast": true,
       "statusBar": {
@@ -5603,6 +5633,11 @@
         "anthropic/claude-opus-5-5": "high",
         "faux/faux-1": "off"
       },
+      "defaultModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "thinkingLevel": "high"
+      },
       "lastFast": true,
       "statusBar": {
         "cost": true,
@@ -6074,6 +6109,11 @@
       "thinkingByModel": {
         "anthropic/claude-opus-5-5": "high",
         "faux/faux-1": "off"
+      },
+      "defaultModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "thinkingLevel": "high"
       },
       "lastFast": true,
       "statusBar": {
@@ -6547,6 +6587,11 @@
         "anthropic/claude-opus-5-5": "high",
         "faux/faux-1": "off"
       },
+      "defaultModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "thinkingLevel": "high"
+      },
       "lastFast": true,
       "statusBar": {
         "cost": true,
@@ -6983,6 +7028,11 @@
       "thinkingByModel": {
         "anthropic/claude-opus-5-5": "high",
         "faux/faux-1": "off"
+      },
+      "defaultModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "thinkingLevel": "high"
       },
       "lastFast": true,
       "statusBar": {
@@ -7469,6 +7519,11 @@
         "anthropic/claude-opus-5-5": "high",
         "faux/faux-1": "off"
       },
+      "defaultModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "thinkingLevel": "high"
+      },
       "lastFast": true,
       "statusBar": {
         "cost": true,
@@ -7953,6 +8008,11 @@
       "thinkingByModel": {
         "anthropic/claude-opus-5-5": "high",
         "faux/faux-1": "off"
+      },
+      "defaultModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "thinkingLevel": "high"
       },
       "lastFast": true,
       "statusBar": {
@@ -8439,6 +8499,11 @@
         "anthropic/claude-opus-5-5": "high",
         "faux/faux-1": "off"
       },
+      "defaultModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "thinkingLevel": "high"
+      },
       "lastFast": true,
       "statusBar": {
         "cost": true,
@@ -8881,6 +8946,11 @@
         "anthropic/claude-opus-5-5": "high",
         "faux/faux-1": "off"
       },
+      "defaultModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "thinkingLevel": "high"
+      },
       "lastFast": true,
       "statusBar": {
         "cost": true,
@@ -9322,6 +9392,11 @@
       "thinkingByModel": {
         "anthropic/claude-opus-5-5": "high",
         "faux/faux-1": "off"
+      },
+      "defaultModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "thinkingLevel": "high"
       },
       "lastFast": true,
       "statusBar": {
@@ -9808,6 +9883,11 @@
         "anthropic/claude-opus-5-5": "high",
         "faux/faux-1": "off"
       },
+      "defaultModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "thinkingLevel": "high"
+      },
       "lastFast": true,
       "statusBar": {
         "cost": true,
@@ -10293,6 +10373,11 @@
         "anthropic/claude-opus-5-5": "high",
         "faux/faux-1": "off"
       },
+      "defaultModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "thinkingLevel": "high"
+      },
       "lastFast": true,
       "statusBar": {
         "cost": true,
@@ -10766,6 +10851,11 @@
       "thinkingByModel": {
         "anthropic/claude-opus-5-5": "high",
         "faux/faux-1": "off"
+      },
+      "defaultModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "thinkingLevel": "high"
       },
       "lastFast": true,
       "statusBar": {
@@ -11249,6 +11339,7 @@
       "appearance": "system",
       "lastModel": null,
       "thinkingByModel": {},
+      "defaultModel": null,
       "lastFast": false,
       "statusBar": {},
       "titleModel": {
@@ -11692,6 +11783,11 @@
       "thinkingByModel": {
         "anthropic/claude-opus-5-5": "high",
         "faux/faux-1": "off"
+      },
+      "defaultModel": {
+        "providerId": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "thinkingLevel": "high"
       },
       "lastFast": true,
       "statusBar": {

@@ -213,6 +213,7 @@ function listWith(setupDone: boolean): Parameters<typeof fakeClient>[0] {
     preferences: {
       setupDone,
       appearance: "system",
+      defaultModel: null,
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
