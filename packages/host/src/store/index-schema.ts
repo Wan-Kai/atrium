@@ -1,4 +1,4 @@
-import { Appearance, Attention, ModelRef, ProxySetting, ThinkingLevel } from "@atrium/protocol";
+import { Appearance, Attention, DefaultModel, ModelRef, ProxySetting, ThinkingLevel } from "@atrium/protocol";
 import { basename } from "node:path";
 import { z } from "zod";
 import type { IndexFileSpec } from "./index-file";
@@ -314,6 +314,8 @@ const PreferencesDocument = z.looseObject({
   lastModel: ModelRef.nullable(),
   /** Each model's last thinking level, keyed `providerId/modelId`. */
   thinkingByModel: z.record(z.string(), ThinkingLevel),
+  /** The model and level new sessions start with; absent before it was chosen (SPEC-0001, "模型与输入框"). */
+  defaultModel: DefaultModel.nullable().optional(),
   /** The status bar groups switched from their default; absent before M1.8 (SPEC-0001, "状态栏（M1.8）"). */
   statusBar: z.record(z.string(), z.boolean()).optional(),
   /** Whether first launch was gone through; absent before M1.10 (SPEC-0001, "首次启动"). */

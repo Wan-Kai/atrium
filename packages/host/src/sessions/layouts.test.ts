@@ -1,6 +1,8 @@
 import { FakeClock, createTempDir } from "@atrium/testkit";
-import { describe, expect, it, onTestFinished } from "vitest";
-import { loadIndexFile } from "../store/index-file";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { loadIndexFile, writeAtomically } from "../store/index-file";
 import { layoutsFile } from "../store/index-schema";
 import { KEPT_CLIENTS, createLayouts } from "./layouts";
 
@@ -21,7 +23,10 @@ async function layouts() {
   onTestFinished(index.cleanup);
   const { file } = await loadIndexFile(index.path, layoutsFile({ sessions: [] }), 0);
   const clock = new FakeClock(1_000);
-  return { layouts: createLayouts({ file, clock }), file, clock };
+  const logger = { warn: vi.fn<() => void>() };
+  const created = createLayouts({ file, clock, logger });
+  onTestFinished(() => created.flush());
+  return { layouts: created, file, clock, logger, dir: index.path };
 }
 
 describe("Layouts", () => {
@@ -140,6 +145,49 @@ describe("Layouts", () => {
 
     expect(all.isOpen("s1")).toBe(true);
     expect(all.isOpen("s2")).toBe(false);
+  });
+
+  it("keeps a change in memory while the file is written in the background, and flush writes it", async () => {
+    const index = await createTempDir("layouts-background");
+    onTestFinished(index.cleanup);
+    const gate: { release: (() => void) | null } = { release: null };
+    const write = vi.fn<(path: string, content: string) => Promise<void>>(async (path: string, content: string) => {
+      await new Promise<void>((done) => {
+        gate.release = done;
+      });
+      await writeAtomically(path, content);
+    });
+    const { file } = await loadIndexFile(index.path, layoutsFile({ sessions: [] }), 0, write);
+    const all = createLayouts({ file, clock: new FakeClock(1_000), logger: { warn: vi.fn<() => void>() } });
+
+    await all.open("c1", A, "s1");
+
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(all.of("c1").tabs[A]).toStrictEqual({ open: ["s1"], active: "s1" });
+    expect(JSON.parse(await readFile(join(index.path, "layouts.json"), "utf8").catch(() => "null"))).toBeNull();
+    gate.release?.();
+    await file.flush();
+    expect(JSON.parse(await readFile(join(index.path, "layouts.json"), "utf8"))).toMatchObject({
+      clients: [{ clientId: "c1", container: A, tabs: { [A]: { open: ["s1"], active: "s1" } } }],
+    });
+  });
+
+  it("logs a failed write and still keeps later changes in memory", async () => {
+    const index = await createTempDir("layouts-failed");
+    onTestFinished(index.cleanup);
+    const write = vi.fn<() => Promise<void>>(async () => {
+      throw new Error("disk full");
+    });
+    const { file } = await loadIndexFile(index.path, layoutsFile({ sessions: [] }), 0, write);
+    const logger = { warn: vi.fn<() => void>() };
+    const all = createLayouts({ file, clock: new FakeClock(1_000), logger });
+
+    await all.open("c1", A, "s1");
+    await all.open("c1", A, "s2");
+    await vi.waitFor(() => expect(logger.warn).toHaveBeenCalled());
+    await vi.waitFor(() => expect(write.mock.calls.length).toBeGreaterThanOrEqual(2));
+
+    expect(all.of("c1").tabs[A]).toStrictEqual({ open: ["s1", "s2"], active: "s2" });
   });
 
   it(`keeps the ${KEPT_CLIENTS} clients seen most recently`, async () => {

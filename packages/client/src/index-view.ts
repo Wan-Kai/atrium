@@ -31,6 +31,7 @@ export function emptyIndex(): IndexView {
       appearance: "system",
       lastModel: null,
       thinkingByModel: {},
+      defaultModel: null,
       lastFast: false,
       statusBar: {},
       titleModel: null,

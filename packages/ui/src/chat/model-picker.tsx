@@ -10,6 +10,7 @@ import {
   LEVEL_NAMES,
   type ShownModel,
   coverageOf,
+  defaultLevel,
   formatTokens,
   groupByProvider,
   levelHint,
@@ -300,21 +301,6 @@ function ModelPanel({
       )}
     </div>
   );
-}
-
-/**
- * The level pi starts a model on when none was chosen: medium, kept within what it supports.
- *
- * @remarks
- * pi's own default (pi-internals.md §4); shown until the session reports its level.
- *
- * @sideEffects none
- * @param levels - The model's levels.
- * @returns The level.
- */
-function defaultLevel(levels: readonly ThinkingLevel[]): ThinkingLevel {
-  if (levels.includes("medium")) return "medium";
-  return levels.find((level) => level === "high" || level === "xhigh" || level === "max") ?? levels.at(-1) ?? "off";
 }
 
 /**

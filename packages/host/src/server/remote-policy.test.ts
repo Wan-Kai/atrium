@@ -332,6 +332,7 @@ describe("the list as the phone gets it", () => {
         appearance: "system",
         lastModel: null,
         thinkingByModel: {},
+        defaultModel: null,
         lastFast: false,
         statusBar: {},
         titleModel: null,

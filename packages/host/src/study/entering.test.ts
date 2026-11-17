@@ -12,7 +12,9 @@ describe("withEntries", () => {
     const layouts = createLayouts({
       file: (await loadIndexFile(index.path, layoutsFile({ sessions: [] }), 0)).file,
       clock: new FakeClock(),
+      logger: { warn: () => undefined },
     });
+    onTestFinished(() => layouts.flush());
     const entered: (string | null)[] = [];
     const wrapped = withEntries(layouts, (containerId) => entered.push(containerId));
 

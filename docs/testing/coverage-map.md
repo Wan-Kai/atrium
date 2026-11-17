@@ -3142,3 +3142,43 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 **未跑**：完整 UI 套件、宿主全量（362/363，`reply-translation` 是既有失败）。
 
 **手动**：装好的 App 里用 `mc --code` 验过中文输入、多行、Esc/Ctrl-C、信任提示停留、关闭确认；agent 驱动的完整链路（开 → 读屏 → 按键 → 等 → 关）由日志核对过。
+
+## 对话使用的四个问题（SPEC-0001"模型与输入框""最后一条已停止消息的编辑重发"、domain-model §1"索引的存储"，2026-11-17，worktree `fix-conversation-ux-bugs`）
+
+自用反馈三条：对话多了点 `+` 要等一两秒；模型列表常跳回 Friday（`sankuai-openai`）的模型；取消一轮、重新编辑再发送会提示失败。查因和改动：
+
+**`+` 慢**：不是布局写入，是 `sessions.summaries()` 对每个会话调 `relay.summary(sessionId)`，后者又 `catalog.find()` → `catalog.list().find()`；列表 576 个会话时每次摘要约 0.4–0.9 秒，而 IndexFeed 每批变化都重建整份列表、每条命令应答前还要 `flush`。用 Electron 探针（用户 home 的副本）量到：`create_chat` 内部只花 20–60 毫秒，应答却要 1.4–1.5 秒，`feed build` 650–780 毫秒。改法：`relay.summary(sessionId, known?)` 用调用方已经拿到的目录项，`summaries()` 传进去。改后同一探针 `create_chat` 29–94 毫秒，`feed build` 回到个位数毫秒。`layouts.json` 同时改成内存先生效、后台写，切标签和新建不再等一次磁盘 fsync（硬崩溃可能丢最后一次标签变化，关宿主时 `flush`）。
+
+| 行为 | 验证 |
+| --- | --- |
+| 列表摘要不为每个会话重新查一遍目录（`known` 项直接用；没给时才 `find`） | `packages/host/src/sessions/agent-relay.test.ts` "summarizes a session it is already given without looking it up in the catalog again"；`session-manager.test.ts` "lists sessions reading the catalog once, without looking each one up again"；破坏检查两处（`conversation-ux.break-check.json`） |
+| `layouts.json` 的改动先体现在内存，写入在后台；写入失败只记 warn，命令照常成功；宿主关闭 `flush` 前磁盘没有 | `layouts.test.ts` "keeps a change in memory while the file is written in the background, and flush writes it"、"logs a failed write and still keeps later changes in memory"；`session-manager.test.ts` "keeps a new chat's directory, draft and tab when its layout cannot be written, and only logs it"（原先是命令失败） |
+
+**默认模型**：协议 42，偏好和 `set_preferences` 加 `defaultModel`（模型 + 档位，可为 `null`）；新会话优先用它，`null` 时按 `lastModel` 和 `thinkingByModel`。设置 · 模型与账户新增"默认模型"一组（模型下拉 + 档位下拉 + "跟随上次选择"），选了不再被会话里的选择改掉。学习方向已经有自己的模型时仍用方向的（SPEC-0008）。
+
+| 行为 | 验证 |
+| --- | --- |
+| `preferred()` 先给默认模型和它的档位（档位为空时用这个模型记住的档位），清掉后回到上次选的 | `packages/host/src/store/preferences.test.ts` 3 项（"starts new sessions on the default model and level over the one chosen last" 等）；破坏检查一处 |
+| 模型按钮/新工作区页在会话还没有模型时先显示默认模型；页面自己选的模型压过默认 | `packages/ui/src/chat/model-choice.test.ts` "shows the default model and its level over the one chosen last"、"takes the remembered level for a default model without one"；`state/new-workspace.test.ts`；破坏检查一处 |
+| 设置里的模型 + 档位选择、档位跟着记住的值或模型默认、恢复"跟随上次选择"、模型已不可用的提示 | `packages/ui/src/settings/accounts-section.browser.test.tsx` 3 项；`router.test.ts` 的 `set_preferences` 路由；协议样例与 Swift 往返夹具 |
+| 手机端的 `Preferences` 解码带上 `defaultModel` | `apps/ios/AtriumKit` 的往返夹具（475 项通过），手写的 JSON 夹具同步补了字段 |
+
+**打开历史会话要等一会**（同日发现）：宿主日志和 Electron 探针都显示读历史本身不慢（`get_entries` 2 毫秒，会话文件几十毫秒），慢的是等 pi 启动（第一个 RPC `set_auto_retry` 0.6–2 秒，大会话偶尔 5.5 秒）；界面订阅了会话，但宿主原先要等 pi 起来才发第一份快照。改成订阅任何**还没起 pi 的文件会话**时先读会话文件、发一份 epoch 0 的只读快照（复用归档方向的 `read-only-transcripts`），pi 起来后它的快照替换；epoch 0 的翻页/步骤/图片也从这份副本回答，pi 起来或宿主关闭时副本作废。探针同一组历史会话从 843 / 5887 / 835 毫秒降到 **58–68 毫秒**。
+
+| 行为 | 验证 |
+| --- | --- |
+| 订阅一个 pi 没起来的文件会话立即拿到 epoch 0 快照（内容来自文件），不起 pi；epoch 0 的 `fetch_transcript` 由副本回答 | `session-manager.test.ts` "shows a session on file from the file at once, before its pi starts, and lets the copy go after"；破坏检查一处 |
+| 打开/发消息起 pi 后换成 epoch 1 的快照，只读副本释放 | 同上（`session.read_only` 归零）；`session-manager.test.ts` "shows a watched session on file from its file before its pi starts, then the pi's snapshot" |
+| 任务会话、重启后的任务对话同样先看到文件内容，再换成 pi 的快照 | `tasks/reviews.host.test.ts`、`tasks/t8-fixes.host.test.ts`、`tasks/t9.host.test.ts` 三条改过的断言 |
+
+**取消后重新编辑再发送失败**：宿主日志里 2026-11-10 那次 `edit_stopped_message` 先 `edit_failed`、再 `transcript_changed`；对应的 pi 会话文件显示替换消息 `2e838de8`（父 `9f992add`，不含原 `af04903d`）在锚点之后 **140 毫秒** 落盘，而宿主的 `confirmed()` 在它之前读了一次内存、`readDisk()` 又读了一次文件，都没看到，就判成失败并恢复了旧分支。改法：发送后最多 2 秒、每 100 毫秒重读会话文件，直到不含原 user 的新 user 落盘；内存里有、文件里始终没有的条目按写盘失败处理（停 pi，不继续写）。
+
+| 行为 | 验证 |
+| --- | --- |
+| 替换先到 pi 内存、后到文件时等着文件，最终成功且不恢复旧分支 | `stopped-edit.test.ts` "waits for the replacement pi appended to reach the session file"；破坏检查一处 |
+| 替换只在内存、始终没落盘：等满后按写盘失败停 pi，恢复旧分支 | 同上 "stops pi when the replacement never reaches the session file" |
+| 原有拒绝、回退、恢复、未落盘条目的行为不变 | `stopped-edit.test.ts` 原 29 项加 2 项新的共 31 项；`edit-stopped.host.test.ts`（真实宿主 + 真实 pi）4 项；`apps/desktop/e2e/edit-stopped-message.spec.ts` 通过 |
+
+验证（2026-11-17，本 worktree）：`pnpm check` 通过（格式、lint、typecheck、knip、boundary、iOS 生成物比对）；单元 6332/6332（含 `agent-relay` 的摘要查询和"订阅即读文件"的用例；机器负载高时 `scripts/ios-sign.test.ts` 会失败，单独跑 8/8）；宿主 363/363（含 `edit-stopped.host.test.ts`；之后在别的 worktree 跑 type-aware lint、负载 8–26 时重跑，每次有一条会动的超时失败——tasks / setup / visuals，单跑都通过，未改这些模块）；Swift `swift test --package-path apps/ios/AtriumKit` 475/475；`pnpm break-check packages/host/test/conversation-ux.break-check.json` 6/6 CAUGHT；`apps/desktop/e2e/edit-stopped-message.spec.ts` 通过；完整非泄漏端到端 81 项通过、2 跳过（`pnpm --filter @atrium/desktop test:e2e --grep-invert "@leak|@perf|@package"`），唯一失败的 `children.spec.ts`「forks a child into a new worktree…」在分支基线 `5baac6fe` 上只把过时的「新建」按钮名改掉后同样失败（归档后「历史」里还列着两个已归档的会话，磁盘上的 `sessions.json` 是对的），是内置终端合并带进来的既有问题，不属这次三条；顺带把 `app.spec.ts` 的 bridge 方法清单补上终端和演示的四个方法、`children/package/sessions.leak` 三处过时的「新建」按钮名改成先开 `+` 菜单。变异 `stopped-edit.ts` 95.03%、`layouts.ts` 94.23%、`model-choice.ts` 88.57%（`agent-relay.ts` 整文件太大没跑，改动行由破坏检查覆盖）；Electron 探针在用户 home 副本上量到 `create_chat` 29–94 毫秒（改前 1.4–1.5 秒）。
+
+界面套件 1424/1424（上一次 1423 的一次失败是 `question-card` 已知的 61.99998 ≥ 62 浮点偶发断言，单文件 21/21）。为跑起来顺带补了终端合并的测试遗留：`fake-client.ts` 加 `terminals` store（否则 343 项界面用例在渲染工作台时崩溃），4 项 `workbench.browser.test.tsx` 的标签栏用例改成先开 `+` 菜单再点"新会话"/"子对话"（终端把 `+` 改成了菜单，旧用例直接找按钮）。泄漏项目 45/45（vitest）；没有跑：模拟器 UI 测试、Electron 的 `@leak`/`@perf`/`@package` 套件、性能预算。`session-manager.ts` 不在变异分组里；`agent-relay.ts` 在，但整文件太大没跑（改动行由破坏检查覆盖）。

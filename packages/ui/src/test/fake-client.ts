@@ -8,13 +8,14 @@ import type {
   MessageTag,
   ModelListView,
   SessionView,
+  TerminalsView,
   SetupView,
   RemoteView,
   SchedulesView,
   TaskState,
   TasksView,
 } from "@atrium/client";
-import { NO_TERMINALS, type TerminalsView, isDirectionId, loadingView } from "@atrium/client";
+import { NO_TERMINALS, isDirectionId, loadingView } from "@atrium/client";
 import {
   type Chat,
   type ChildPlacement,
@@ -401,10 +402,11 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
   /** What the area asked of the workspace changes, in order. */
   const changeCalls: string[] = [];
   const changeStores = new Map<string, StoreApi<ChangesView>>();
-  const terminals: StoreApi<TerminalsView> = createStore<TerminalsView>(() => NO_TERMINALS);
   const diff = createStore<DiffView>(() => ({ target: null, status: "idle", files: [], tooLarge: false, error: null }));
   const modelLists = new Map<string | null, StoreApi<ModelListView>>();
   const views = new Map<string, StoreApi<SessionView>>();
+  /** The terminals the host reports, none unless a test gives it one (SPEC-0009). */
+  const terminals: StoreApi<TerminalsView> = createStore<TerminalsView>(() => NO_TERMINALS);
   /** The run control the host's snapshot of a session carries, when a test gives it one; idle otherwise. */
   const controls = new Map<string, Control>(Object.entries(answers.controls ?? {}));
   /** The sessions still without a pi; watching them brings no snapshot. */
@@ -422,6 +424,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     preferences: {
       setupDone: true,
       appearance: "system",
+      defaultModel: null,
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,

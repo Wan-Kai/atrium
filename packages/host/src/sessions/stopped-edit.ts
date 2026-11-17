@@ -4,6 +4,42 @@ import type { EntriesPage } from "../transcript/session-transcript";
 import type { SessionPi } from "./session-controller";
 import { createSessionLog } from "../transcript/session-log";
 
+/** How long the session file is looked at again for the replacement, and how often. */
+const REPLACEMENT_GAP_MS = 100;
+const REPLACEMENT_ATTEMPTS = 20;
+
+/**
+ * Waits a moment before looking again.
+ *
+ * @remarks
+ * The default for `editStoppedBranch`; tests replace it with no wait.
+ *
+ * @sideEffects Starts a timer.
+ * @param ms - How long.
+ * @returns When it passed.
+ */
+function pause(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+/**
+ * Whether pi holds entries the file does not have.
+ *
+ * @remarks
+ * An append that failed to persist leaves them, which must not be added to.
+ *
+ * @sideEffects none
+ * @param live - pi's entries.
+ * @param disk - The file's entries.
+ * @returns Whether any is in memory only.
+ */
+function hasUnwritten(live: EntriesPage, disk: EntriesPage): boolean {
+  const ids = new Set(disk.entries.map((entry) => entry.id));
+  return live.entries.some((entry) => !ids.has(entry.id));
+}
+
 /**
  * Reads only the active path of a complete pi entry page.
  * @remarks Old branches remain on file and cannot prove that a replacement was accepted.
@@ -26,7 +62,7 @@ function activeEntries(page: EntriesPage) {
  * `edit_failed`, so changing an inner error string is externally equivalent.
  * @sideEffects Calls pi, reads its session file, changes branches, publishes snapshots and stops
  * pi if its in-memory branch cannot safely be used (SPEC-0001, stopped-message editing).
- * @param options - The protected pi, target, operation id and submission callbacks.
+ * @param options - The protected pi, target, operation id, submission callbacks and how to wait.
  * @returns That the replacement user is on file.
  * @throws {CommandError} `edit_failed` when navigation, submission or recovery failed.
  */
@@ -36,6 +72,8 @@ export async function editStoppedBranch(options: {
   readonly token: string;
   readonly send: () => Promise<"started" | "handled">;
   readonly onBranch: (page: EntriesPage) => void;
+  /** How to wait between looks at the session file; without it, 50 ms at a time. */
+  readonly wait?: (ms: number) => Promise<void>;
 }): Promise<{ readonly disposition: "started" }> {
   let before: EntriesPage | null = null;
   let attempted = false;
@@ -73,17 +111,45 @@ export async function editStoppedBranch(options: {
    * Recognizes a committed replacement without relying on a possibly lost response or echo.
    * @remarks It must be a fresh user on a path that excludes the original user, not an append.
    * @sideEffects none
-   * @param disk - Entries from the actual session file.
+   * @param page - Entries from the actual session file, or from pi.
    * @returns Whether the replacement was committed.
    */
-  function replaced(disk: EntriesPage): boolean {
+  function replaced(page: EntriesPage): boolean {
     if (before === null) return false;
     const known = new Set(before.entries.map((entry) => entry.id));
-    const branch = activeEntries(disk);
+    const branch = activeEntries(page);
     return (
       !branch.some((entry) => entry.id === options.entryId) &&
       branch.some((entry) => entry.kind === "user" && !known.has(entry.id))
     );
+  }
+  /**
+   * Waits for pi's replacement to reach the session file.
+   *
+   * @remarks
+   * A prompt's answer does not wait for the user's entry: pi appends it after the response, and
+   * the file may trail its memory. Only a new user on disk, outside the old branch, counts.
+   * Nothing appended within the wait is a refusal, which the caller restores; anything in memory
+   * the file still does not have is unsafe, as for any other append that failed to persist.
+   *
+   * @sideEffects Calls pi and reads its file; may mark the session's branch unsafe.
+   * @returns The page proving the replacement on disk, or `null` when it did not come.
+   */
+  async function settled(): Promise<EntriesPage | null> {
+    const wait = options.wait ?? pause;
+    const live = await options.pi.getEntries(undefined);
+    let disk = await readDisk();
+    for (let attempt = 0; !replaced(disk) && attempt < REPLACEMENT_ATTEMPTS; attempt += 1) {
+      await wait(REPLACEMENT_GAP_MS);
+      disk = await readDisk();
+    }
+    if (!replaced(disk)) {
+      unsafe = hasUnwritten(live, disk);
+      return null;
+    }
+    // The file has the replacement; nothing else of pi's may still be only in its memory.
+    unsafe = hasUnwritten(live, disk);
+    return unsafe ? null : disk;
   }
   try {
     before = await confirmed();
@@ -99,9 +165,8 @@ export async function editStoppedBranch(options: {
     if (after.leafId !== target.parentId) throw new CommandError("edit_failed");
     options.onBranch(after);
     if ((await options.send()) !== "started") throw new CommandError("edit_failed");
-    // Preflight answers before the user is appended; the next RPC read sees that synchronous append.
-    await confirmed();
-    if (!replaced(await readDisk())) throw new CommandError("edit_failed");
+    // pi answers before it appends the user, and its file may trail its memory: wait for both.
+    if ((await settled()) === null) throw new CommandError("edit_failed");
     return { disposition: "started" };
   } catch {
     try {

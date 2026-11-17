@@ -41,7 +41,7 @@ const pairing = {
 };
 
 describe("the coordinated remote contract", () => {
-  it("uses version 42, which lets a reloaded window find its terminals again (SPEC-0009)", () => {
+  it("uses version 42, which adds the default model and lets a reloaded window find its terminals (SPEC-0001, SPEC-0009)", () => {
     expect(PROTOCOL_VERSION).toBe(42);
   });
 

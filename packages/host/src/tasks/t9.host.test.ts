@@ -623,11 +623,11 @@ describe("the task conversation after a restart", () => {
     await harness.restart();
     const { client } = harness;
     await client.watch([task.taskSessionId]);
-    // Its pi is not running: there is nothing to read yet.
-    expect(client.session(task.taskSessionId)?.getState().status).not.toBe("ready");
+    // Its pi is not running: the file shows at once, in epoch 0, and the pi's snapshot follows.
+    expect(client.session(task.taskSessionId)?.getState()).toMatchObject({ status: "ready", epoch: 0 });
     await client.openTaskSession(taskId, task.taskSessionId);
 
-    await vi.waitFor(() => expect(client.session(task.taskSessionId)?.getState().status).toBe("ready"));
+    await vi.waitFor(() => expect(client.session(task.taskSessionId)?.getState().epoch).toBe(1));
     await vi.waitFor(() =>
       expect(JSON.stringify(client.session(task.taskSessionId)?.getState().items)).toContain("Two steps."),
     );

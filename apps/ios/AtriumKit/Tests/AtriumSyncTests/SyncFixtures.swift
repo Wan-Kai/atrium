@@ -143,7 +143,7 @@ func indexChangesJSON(
 
 /// Preferences as a new install has them, as JSON.
 let preferencesJSON = """
-  {"setupDone":true,"appearance":"system","lastModel":null,"thinkingByModel":{},"lastFast":false,\
+  {"setupDone":true,"appearance":"system","lastModel":null,"thinkingByModel":{},"defaultModel":null,"lastFast":false,\
   "statusBar":{},"titleModel":null,"proxy":null,"inbox":true,"translationLanguage":"简体中文"}
   """
 

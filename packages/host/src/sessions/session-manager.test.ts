@@ -180,7 +180,10 @@ async function manage(
   const layouts = createLayouts({
     file: (await loadIndexFile(index, layoutsFile({ sessions: [] }), 0)).file,
     clock: systemClock,
+    logger: recording.logger,
   });
+  // Its writes go on in the background; they must land before the test's home is removed.
+  cleanups.push(() => layouts.flush());
   const chatRecords = createChatRecords((await loadIndexFile(index, CHATS_FILE, 0)).file);
   const refreshed: string[] = [];
   let changes = 0;
@@ -906,6 +909,37 @@ describe("SessionManager creating sessions", () => {
     );
   });
 
+  it("lists sessions reading the catalog once, without looking each one up again", async () => {
+    let finds = 0;
+    const { manager } = await manage(
+      { rules: SESSION_ONE },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        catalog: (catalog) => ({
+          ...catalog,
+          find: (sessionId) => {
+            finds += 1;
+            return catalog.find(sessionId);
+          },
+        }),
+      },
+    );
+    const created = await manager.createChat("client-1");
+    await manager.openSession("client-1", created.sessionId);
+    const before = finds;
+
+    // A lookup per session made the index build quadratic: 576 sessions took hundreds of milliseconds.
+    expect(manager.summaries()).toHaveLength(1);
+    expect(finds).toBe(before);
+  });
+
   it("starts a new chat's pi again on its first message after its start failed", async () => {
     const at = await place();
     const tools = { current: null as SessionTools | null };
@@ -1025,14 +1059,14 @@ describe("SessionManager creating sessions", () => {
     expect(resources.snapshot()["pi-process"]).toBe(1);
   });
 
-  it("keeps a new chat's directory and draft when its tab cannot be written", async () => {
-    const { manager, catalog, at } = await manage({ rules: SESSION_ONE });
+  it("keeps a new chat's directory, draft and tab when its layout cannot be written, and only logs it", async () => {
+    const { manager, catalog, layouts, records, at } = await manage({ rules: SESSION_ONE });
     // A directory where the layouts file goes, so writing it fails.
     const file = join(at.home, "index", "layouts.json");
     await rm(file, { force: true });
     await mkdir(join(file, "taken"), { recursive: true });
 
-    await expect(manager.createChat("client-1")).rejects.toMatchObject({ code: "EISDIR" });
+    expect(await manager.createChat("client-1")).toStrictEqual({ sessionId: "pi-session-1" });
 
     expect(await readdir(join(at.home, "chats"))).toStrictEqual(["id1"]);
     expect(catalog.find("pi-session-1")).toMatchObject({
@@ -1040,6 +1074,12 @@ describe("SessionManager creating sessions", () => {
       state: "draft",
       cwd: join(at.home, "chats", "id1"),
     });
+    expect(layouts.of("client-1").tabs[CHAT]).toStrictEqual({ open: ["pi-session-1"], active: "pi-session-1" });
+    await vi.waitFor(() =>
+      expect(records.filter((record) => record["msg"] === "layouts not written")).toStrictEqual([
+        expect.objectContaining({ level: "warn" }),
+      ]),
+    );
   });
 });
 
@@ -1262,6 +1302,47 @@ describe("SessionManager running sessions", () => {
     await manager.subscribe("c1", [sessionId]);
 
     expect(received.map((event) => event.type)).toStrictEqual(["session_snapshot"]);
+  });
+
+  it("shows a session on file from the file at once, before its pi starts, and lets the copy go after", async () => {
+    const at = await place();
+    await terminalSession(at, "pi-session-1", at.workspace);
+    const { manager, catalog, received, resources, starts } = await manage({ rules: SESSION_ONE }, at);
+    await catalog.scan();
+
+    await manager.subscribe("c1", ["pi-session-1"]);
+
+    const early = present(
+      received.find((event) => event.type === "session_snapshot"),
+      "the file's snapshot",
+    );
+    expect(early).toMatchObject({
+      type: "session_snapshot",
+      sessionId: "pi-session-1",
+      epoch: 0,
+      items: [{ kind: "turn", user: { text: "hi" } }],
+    });
+    expect(starts()).toStrictEqual([]);
+    expect(resources.snapshot()["session.read_only"]).toBe(1);
+    // Older pages in epoch 0 come from the same copy; no pi is needed for them.
+    expect(
+      await manager.fetchTranscript({
+        type: "fetch_transcript",
+        requestId: "r1",
+        traceparent,
+        sessionId: "pi-session-1",
+        epoch: 0,
+        before: present(early.items[0], "the turn").id,
+        limit: 10,
+      }),
+    ).toStrictEqual({ items: [], hasOlder: false });
+
+    await manager.openSession("client-1", "pi-session-1");
+
+    await vi.waitFor(() =>
+      expect(received.filter((event) => event.type === "session_snapshot").at(-1)).toMatchObject({ epoch: 1 }),
+    );
+    await vi.waitFor(() => expect(resources.snapshot()["session.read_only"]).toBe(0));
   });
 
   it("answers commands on sessions it does not know with session_not_found", async () => {
@@ -2243,18 +2324,27 @@ describe("SessionManager turn starts", () => {
 });
 
 describe("SessionManager after the review (2026-10-08)", () => {
-  it("lets a client watch a session on file before its pi starts, and sends the snapshot once it has", async () => {
+  it("shows a watched session on file from its file before its pi starts, then the pi's snapshot", async () => {
     const at = await place();
     await terminalSession(at, "pi-session-1", at.workspace);
-    const { manager, received } = await manage({ rules: SESSION_ONE }, at);
+    // Held before its pi can be looked for, so the watch lands while the open is still under way.
+    const tools = await scriptedTools(at, { rules: SESSION_ONE });
+    const gate = Promise.withResolvers<void>();
+    const { manager, received } = await manage(async () => {
+      await gate.promise;
+      return tools;
+    }, at);
 
     // As the UI does: the tab shows at once, and its view subscribes before the open has finished.
     const opening = manager.openSession("client-1", "pi-session-1");
     await manager.subscribe("c1", ["pi-session-1"]);
-    expect(received).toStrictEqual([]);
+    expect(received).toMatchObject([
+      { type: "session_snapshot", sessionId: "pi-session-1", epoch: 0, items: [{ kind: "turn" }] },
+    ]);
+    gate.resolve();
     await opening;
 
-    expect(received).toMatchObject([{ type: "session_snapshot", sessionId: "pi-session-1", epoch: 1 }]);
+    expect(received.at(-1)).toMatchObject({ type: "session_snapshot", sessionId: "pi-session-1", epoch: 1 });
   });
 
   it("starts the pi of a session on file when a message comes before anyone opened it", async () => {
@@ -2526,7 +2616,9 @@ describe("SessionManager models", () => {
       undefined,
       memory.models,
     );
-    await manager.createChat("client-1");
+    const created = await manager.createChat("client-1");
+    // The start under way chooses its model before this; only later restarts are the test's.
+    await manager.openSession("client-1", created.sessionId);
     await manager.subscribe("c1", ["pi-session-1"]);
     memory.prefer({ providerId: "openai", modelId: "gpt", thinkingLevel: null });
 
@@ -5483,7 +5575,7 @@ describe("SessionManager archived directions' sessions", () => {
     expect(resources.snapshot()["session.read_only"]).toBe(1);
   });
 
-  it("lets go of the copy once nobody watches it, and of one read before the direction was restored", async () => {
+  it("lets go of the copy once nobody watches it, and shows a restored direction's session from its file", async () => {
     const { manager, subscriptions, resources, restore, received } = await archivedDirection();
     await manager.subscribe("c1", ["older"]);
     expect(resources.snapshot()["session.read_only"]).toBe(1);
@@ -5495,11 +5587,14 @@ describe("SessionManager archived directions' sessions", () => {
     await manager.subscribe("c1", ["older"]);
     expect(resources.snapshot()["session.read_only"]).toBe(1);
     restore();
+    subscriptions.subscribe("c1", []);
     received.length = 0;
     await manager.subscribe("c1", ["older"]);
-    expect(resources.snapshot()["session.read_only"]).toBe(0);
-    // Not run yet, it has no snapshot until a message or opening starts it.
-    expect(received.filter((event) => event.type === "session_snapshot")).toStrictEqual([]);
+    // It can run now, but no pi has started it: its file shows meanwhile (the copy goes once one does).
+    expect(resources.snapshot()["session.read_only"]).toBe(1);
+    expect(received.filter((event) => event.type === "session_snapshot")).toMatchObject([
+      { type: "session_snapshot", sessionId: "older", epoch: 0 },
+    ]);
   });
 
   it("lets go of the copy when its tab closes and nobody watches it", async () => {

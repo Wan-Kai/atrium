@@ -62,7 +62,9 @@ async function assemble() {
   const layouts = createLayouts({
     file: (await loadIndexFile(index, layoutsFile({ sessions: [] }), 0)).file,
     clock: systemClock,
+    logger: recording.logger,
   });
+  onTestFinished(() => layouts.flush());
   const preferences = createPreferenceStore((await loadIndexFile(index, PREFERENCES_FILE, 0)).file);
   const chatRecords = createChatRecords((await loadIndexFile(index, CHATS_FILE, 0)).file);
   const feed = createIndexFeed({

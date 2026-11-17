@@ -3,7 +3,7 @@ import { SessionAgent } from "./agent";
 import { ErrorCode } from "./errors";
 import { ChatId, ContainerId, DirectionId, ProjectId, SessionId, WorkspaceId } from "./ids";
 import { StatusGroupId } from "./metrics";
-import { ModelRef, SessionModel, ThinkingLevel } from "./models";
+import { DefaultModel, ModelRef, SessionModel, ThinkingLevel } from "./models";
 import { SessionStudy, StudyNext, StudyProgress } from "./study";
 
 /** An absolute path on the host's machine. */
@@ -285,8 +285,9 @@ export const TranslationLanguage = z
  *
  * @remarks
  * `lastModel` and `thinkingByModel` (keyed `providerId/modelId`) follow every model or thinking
- * level chosen in any session, and new sessions start with them (SPEC-0001, "模型与输入框"); so
- * does `lastFast`, Fast switched on or off (SPEC-0001, "Fast").
+ * level chosen in any session (SPEC-0001, "模型与输入框"); so does `lastFast`, Fast switched on or
+ * off (SPEC-0001, "Fast"). `defaultModel` is the model and level new sessions start with, chosen in
+ * the settings and not moved by a choice in a session; `null` follows `lastModel` and its level.
  * `statusBar` holds only the status bar groups you switched from their default, so a group added
  * later shows as its own default says (SPEC-0001, "状态栏（M1.8）"). `setupDone` says first launch
  * was gone through; `titleModel` names the model that names sessions, `null` for each session's own
@@ -299,6 +300,7 @@ export const Preferences = z.strictObject({
   appearance: Appearance,
   lastModel: ModelRef.nullable(),
   thinkingByModel: z.record(z.string().max(1024), ThinkingLevel),
+  defaultModel: DefaultModel.nullable(),
   lastFast: z.boolean(),
   statusBar: StatusBarChoices,
   titleModel: ModelRef.nullable(),

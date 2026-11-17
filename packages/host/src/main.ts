@@ -312,7 +312,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     logger,
   });
   // A client going into a direction makes it the one opened last; the commands come below.
-  const layouts = withEntries(createLayouts({ file: index.layouts, clock }), (containerId) =>
+  const layouts = withEntries(createLayouts({ file: index.layouts, clock, logger }), (containerId) =>
     study.entered(containerId),
   );
   const chatRecords = createChatRecords(index.chats);

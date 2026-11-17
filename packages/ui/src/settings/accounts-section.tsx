@@ -1,11 +1,11 @@
 import { type AtriumClient, CommandError } from "@atrium/client";
-import type { ModelRef, Plans, SetupProvider } from "@atrium/protocol";
+import type { DefaultModel, ModelRef, Plans, SetupProvider, ThinkingLevel } from "@atrium/protocol";
 import { CaretDown, Key, Plus } from "../design/icons";
 import { useEffect, useState } from "react";
 import { useStore } from "zustand";
 import { MENU_ITEM, MenuButton } from "../chat/menu-button";
 import { PlanSections } from "../chat/plan-sections";
-import { groupByProvider, providerOf } from "../chat/model-choice";
+import { LEVEL_NAMES, defaultLevel, groupByProvider, providerOf } from "../chat/model-choice";
 import { KeyForm, type LoginFlow, SignedIn, SubscriptionList, useLoginFlow } from "../setup/login-flow";
 import { isLastCredential, keyCandidates, keyedProviders } from "../setup/providers";
 import { GHOST_BUTTON, Group, LINK_BUTTON, Row, Tick } from "./parts";
@@ -193,6 +193,7 @@ export function AccountsSection({
         ))}
         <KeyAdder flow={flow} candidates={keyCandidates(providers)} openUrl={openUrl} />
       </Group>
+      <NewSessionModel client={client} />
       <TitleModel client={client} />
       <TranslationGroup client={client} />
     </>
@@ -266,6 +267,214 @@ function KeyAdder({
         </button>
       }
     />
+  );
+}
+
+/**
+ * The model and thinking level new sessions start with.
+ *
+ * @remarks
+ * SPEC-0001 ("设置 · 模型与账户", "模型与输入框"): chosen here, it holds for every new session and
+ * is not moved by a model chosen in a session; `null` follows the model chosen last. The level is
+ * the one the model remembered in a session, else its usual starting level; a model pi no longer
+ * lists stays chosen, with a note that new sessions then start on pi's own model.
+ *
+ * @sideEffects Subscribes to the client's models outside any workspace, asking for them when shown;
+ * sends `set_preferences` when a model or level is chosen.
+ * @param props - The client.
+ * @returns The group.
+ */
+function NewSessionModel({ client }: { readonly client: AtriumClient }) {
+  const chosen = useStore(client.index, (index) => index.preferences.defaultModel ?? null);
+  const remembered = useStore(client.index, (index) => index.preferences.thinkingByModel);
+  const models = useStore(client.models(null));
+  useEffect(() => {
+    // Fire and forget: the failure lands in the list.
+    void client.loadModels(null);
+  }, [client]);
+  const listed =
+    chosen === null
+      ? undefined
+      : models.models.find((model) => model.providerId === chosen.providerId && model.modelId === chosen.modelId);
+  const levels =
+    chosen === null ? [] : (listed?.thinkingLevels ?? (chosen.thinkingLevel === null ? [] : [chosen.thinkingLevel]));
+  const level = chosen?.thinkingLevel ?? null;
+
+  /**
+   * Chooses the default model, or `null` for the one chosen last.
+   *
+   * @remarks
+   * The level is the one remembered for the model when it supports it, else the model's usual
+   * starting level.
+   *
+   * @sideEffects Sends `set_preferences`.
+   * @param model - The model, or `null`.
+   */
+  const chooseModel = (model: ModelRef | null): void => {
+    let next: DefaultModel | null = null;
+    if (model !== null) {
+      const catalog = models.models.find((one) => one.providerId === model.providerId && one.modelId === model.modelId);
+      const rememberedLevel = remembered[`${model.providerId}/${model.modelId}`];
+      const nextLevel =
+        catalog === undefined
+          ? (rememberedLevel ?? null)
+          : rememberedLevel !== undefined && catalog.thinkingLevels.includes(rememberedLevel)
+            ? rememberedLevel
+            : defaultLevel(catalog.thinkingLevels);
+      next = { ...model, thinkingLevel: nextLevel };
+    }
+    // Fire and forget: the choice shows at once and the host keeps it.
+    void client.setPreferences({ defaultModel: next }).catch(() => undefined);
+  };
+
+  /**
+   * Changes the default model's thinking level.
+   *
+   * @remarks
+   * See `NewSessionModel`.
+   *
+   * @sideEffects Sends `set_preferences`.
+   * @param next - The level.
+   */
+  const chooseLevel = (next: ThinkingLevel): void => {
+    if (chosen === null) return;
+    void client
+      .setPreferences({
+        defaultModel: { providerId: chosen.providerId, modelId: chosen.modelId, thinkingLevel: next },
+      })
+      .catch(() => undefined);
+  };
+
+  return (
+    <Group
+      title="默认模型"
+      footer="没设置时跟随上一次在会话里选的模型和推理强度。学习方向已经有自己的模型时仍用方向的。"
+    >
+      <Row
+        label="新会话使用的模型"
+        detail={
+          <>
+            新对话、新工作区，以及还没有自己模型的学习方向都用它
+            {chosen !== null && listed === undefined && models.status === "ready" ? (
+              <span className="block text-[var(--attn-text)]">已不可用，新会话暂时用 pi 的默认模型</span>
+            ) : null}
+          </>
+        }
+        controls={
+          <>
+            <MenuButton
+              field
+              label="新会话使用的模型"
+              content={
+                <>
+                  {chosen === null ? (
+                    <span>跟随上次选择</span>
+                  ) : (
+                    <>
+                      <span className="truncate font-mono text-[length:var(--fs-sm)]">{chosen.modelId}</span>
+                      <span className="text-[var(--text-dim)]">{providerOf(chosen.providerId).name}</span>
+                    </>
+                  )}
+                  <CaretDown size={11} className="text-[var(--text-dim)]" />
+                </>
+              }
+            >
+              {(close) => (
+                <>
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={chosen === null}
+                    className={MENU_ITEM}
+                    onClick={() => {
+                      close();
+                      chooseModel(null);
+                    }}
+                  >
+                    <Tick on={chosen === null} />
+                    <span className="min-w-0 flex-1">
+                      跟随上次选择
+                      <small className="block text-[length:var(--fs-xs)] text-[var(--text-dim)]">
+                        上一次在会话里选的模型和推理强度
+                      </small>
+                    </span>
+                  </button>
+                  {models.status === "loading" && models.models.length === 0 ? (
+                    <div className="px-2 py-1.5 text-[length:var(--fs-sm)] text-[var(--text-dim)]">正在读取模型…</div>
+                  ) : null}
+                  {models.status === "failed" ? (
+                    <div className="px-2 py-1.5 text-[length:var(--fs-sm)] text-[var(--text-dim)]">读不到模型列表</div>
+                  ) : null}
+                  {groupByProvider(models.models).map((group) => (
+                    <div key={group.providerId} role="group" aria-label={providerOf(group.providerId).name}>
+                      <div className="mx-1.5 my-1 h-[0.5px] bg-[var(--line)]" />
+                      <div className="px-2 pt-1.5 pb-1 text-[length:var(--fs-xs)] text-[var(--text-dim)]">
+                        {providerOf(group.providerId).name}
+                      </div>
+                      {group.models.map((model) => {
+                        const on = chosen?.providerId === model.providerId && chosen.modelId === model.modelId;
+                        return (
+                          <button
+                            key={model.modelId}
+                            type="button"
+                            role="menuitemradio"
+                            aria-checked={on}
+                            className={MENU_ITEM}
+                            onClick={() => {
+                              close();
+                              chooseModel({ providerId: model.providerId, modelId: model.modelId });
+                            }}
+                          >
+                            <Tick on={on} />
+                            <span className="min-w-0 flex-1 truncate font-mono text-[length:var(--fs-sm)]">
+                              {model.modelId}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </>
+              )}
+            </MenuButton>
+            {levels.length <= 1 || level === null ? null : (
+              <MenuButton
+                field
+                label="新会话使用的推理强度"
+                content={
+                  <>
+                    <span>{LEVEL_NAMES[level]}</span>
+                    <CaretDown size={11} className="text-[var(--text-dim)]" />
+                  </>
+                }
+              >
+                {(close) => (
+                  <>
+                    <div className="px-2 pt-1.5 pb-1 text-[length:var(--fs-xs)] text-[var(--text-dim)]">推理强度</div>
+                    {levels.map((one) => (
+                      <button
+                        key={one}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={level === one}
+                        className={MENU_ITEM}
+                        onClick={() => {
+                          close();
+                          chooseLevel(one);
+                        }}
+                      >
+                        <Tick on={level === one} />
+                        <span className="min-w-0 flex-1">{LEVEL_NAMES[one]}</span>
+                      </button>
+                    ))}
+                  </>
+                )}
+              </MenuButton>
+            )}
+          </>
+        }
+      />
+    </Group>
   );
 }
 

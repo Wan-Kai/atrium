@@ -521,7 +521,8 @@ describe("Settings · models and accounts", () => {
     await screen.getByRole("menuitemradio", { name: /^跟随会话的模型/ }).click();
     await expect.element(menu).toHaveTextContent("跟随会话的模型");
 
-    expect(modelCalls).toStrictEqual(["loadModels null"]);
+    // The default model's chooser asks too, beside the title model's.
+    expect(modelCalls).toStrictEqual(["loadModels null", "loadModels null"]);
     expect(calls).toStrictEqual([
       "watchRemote true",
       'setPreferences {"titleModel":{"providerId":"openai","modelId":"gpt-6-mini"}}',
@@ -529,10 +530,113 @@ describe("Settings · models and accounts", () => {
     ]);
   });
 
+  it("chooses the model and level new sessions start with, and can go back to the last one chosen", async () => {
+    const models: ModelListView = {
+      status: "ready",
+      models: [
+        { ...model("catpaw-cli", "deepseek-v4.1-flash"), thinkingLevels: ["low", "high", "max"] },
+        { ...model("openai", "gpt-6"), thinkingLevels: ["low", "medium", "high"] },
+      ],
+      defaultModel: null,
+      error: null,
+    };
+    const { screen, calls } = await accounts([CLAUDE], { answers: { models } });
+    const button = screen.getByRole("button", { name: "新会话使用的模型" });
+
+    await expect.element(button).toHaveTextContent("跟随上次选择");
+    await expect.element(screen.getByRole("button", { name: "新会话使用的推理强度" })).not.toBeInTheDocument();
+    await button.click();
+    await screen.getByRole("menuitemradio", { name: "deepseek-v4.1-flash" }).click();
+    await expect.element(button).toHaveTextContent("deepseek-v4.1-flashcatpaw-cli");
+    const level = screen.getByRole("button", { name: "新会话使用的推理强度" });
+    await expect.element(level).toHaveTextContent("高");
+
+    await level.click();
+    await screen.getByRole("menuitemradio", { name: "最高" }).click();
+    await expect.element(level).toHaveTextContent("最高");
+    await button.click();
+    await screen.getByRole("menuitemradio", { name: /^跟随上次选择/ }).click();
+    await expect.element(button).toHaveTextContent("跟随上次选择");
+
+    expect(calls).toStrictEqual([
+      "watchRemote true",
+      'setPreferences {"defaultModel":{"providerId":"catpaw-cli","modelId":"deepseek-v4.1-flash","thinkingLevel":"high"}}',
+      'setPreferences {"defaultModel":{"providerId":"catpaw-cli","modelId":"deepseek-v4.1-flash","thinkingLevel":"max"}}',
+      'setPreferences {"defaultModel":null}',
+    ]);
+  });
+
+  it("starts a default model on the level it was last given", async () => {
+    const models: ModelListView = {
+      status: "ready",
+      models: [
+        { ...model("catpaw-cli", "deepseek-v4.1-flash"), thinkingLevels: ["low", "high", "max"] },
+        { ...model("openai", "gpt-6"), thinkingLevels: ["low", "medium", "max"] },
+      ],
+      defaultModel: null,
+      error: null,
+    };
+    const preferences = {
+      setupDone: true,
+      appearance: "system" as const,
+      defaultModel: null,
+      lastModel: null,
+      thinkingByModel: { "openai/gpt-6": "medium" as const },
+      lastFast: false,
+      statusBar: {},
+      titleModel: null,
+      translationLanguage: "简体中文",
+      proxy: null,
+      inbox: true,
+    };
+    const { screen, calls } = await accounts([CLAUDE], {
+      answers: { models },
+      initial: { preferences },
+    });
+
+    await screen.getByRole("button", { name: "新会话使用的模型" }).click();
+    await screen.getByRole("menuitemradio", { name: "gpt-6" }).click();
+
+    await expect.element(screen.getByRole("button", { name: "新会话使用的推理强度" })).toHaveTextContent("中");
+    expect(calls).toStrictEqual([
+      "watchRemote true",
+      'setPreferences {"defaultModel":{"providerId":"openai","modelId":"gpt-6","thinkingLevel":"medium"}}',
+    ]);
+  });
+
+  it("notes a chosen default model pi no longer lists", async () => {
+    const preferences = {
+      setupDone: true,
+      appearance: "system" as const,
+      defaultModel: { providerId: "openai", modelId: "gpt-5-mini", thinkingLevel: "low" as const },
+      lastModel: null,
+      thinkingByModel: {},
+      lastFast: false,
+      statusBar: {},
+      titleModel: null,
+      translationLanguage: "简体中文",
+      proxy: null,
+      inbox: true,
+    };
+    const models: ModelListView = {
+      status: "ready",
+      models: [model("anthropic", "claude-haiku-4-5")],
+      defaultModel: null,
+      error: null,
+    };
+    const { screen } = await accounts([CLAUDE], { answers: { models }, initial: { preferences } });
+
+    await expect.element(screen.getByText("已不可用，新会话暂时用 pi 的默认模型")).toBeVisible();
+    await expect
+      .element(screen.getByRole("button", { name: "新会话使用的模型" }))
+      .toHaveTextContent("gpt-5-miniOpenAI");
+  });
+
   it("notes a chosen title model pi no longer lists, once the list is read", async () => {
     const preferences = {
       setupDone: true,
       appearance: "system" as const,
+      defaultModel: null,
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
@@ -560,6 +664,7 @@ describe("Settings · models and accounts", () => {
     const preferences = {
       setupDone: true,
       appearance: "system" as const,
+      defaultModel: null,
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,
@@ -592,6 +697,7 @@ describe("Settings · models and accounts", () => {
     const preferences = {
       setupDone: true,
       appearance: "system" as const,
+      defaultModel: null,
       lastModel: null,
       thinkingByModel: {},
       lastFast: false,

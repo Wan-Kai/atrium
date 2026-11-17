@@ -9,6 +9,7 @@ allowBuilds:
   # Pulled in by @earendil-works/pi-ai, which testkit uses for types only.
   "@google/genai": false
   protobufjs: false
+  node-pty: true
 # pi releases are pinned to the version the pi-internals notes were checked against, which can be
 # newer than pnpm's minimum release age.
 minimumReleaseAgeExclude:

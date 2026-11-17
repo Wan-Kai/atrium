@@ -49,7 +49,18 @@ test("gives the page no Node access and only the bridge: bootstrap, folder choic
   expect(exposed).toStrictEqual({
     require: "undefined",
     process: "undefined",
-    bridge: ["getBootstrap", "pickDirectory", "setAppearance", "pathForFile", "reveal", "openInBrowser"],
+    bridge: [
+      "getBootstrap",
+      "pickDirectory",
+      "setAppearance",
+      "pathForFile",
+      "reveal",
+      "openInBrowser",
+      "openTerminal",
+      "captureVisual",
+      "onPointerDown",
+      "onShortcut",
+    ],
   });
 });
 

@@ -43,7 +43,7 @@ function listed(models: CatalogModel[], defaultModel: ModelListView["defaultMode
   return { status: "ready", models, defaultModel, error: null };
 }
 
-const NONE = { lastModel: null, thinkingByModel: {} };
+const NONE = { defaultModel: null, lastModel: null, thinkingByModel: {} };
 const UNASKED: ModelListView = { status: "idle", models: [], defaultModel: null, error: null };
 
 describe("shownModel", () => {
@@ -67,7 +67,11 @@ describe("shownModel", () => {
   });
 
   it("shows the session's model over the one chosen last", () => {
-    const preferences = { lastModel: { providerId: "openai", modelId: "gpt-6" }, thinkingByModel: {} };
+    const preferences = {
+      defaultModel: null,
+      lastModel: { providerId: "openai", modelId: "gpt-6" },
+      thinkingByModel: {},
+    };
 
     expect(shownModel({ providerId: "x", modelId: "m", thinkingLevel: "low" }, preferences, UNASKED)).toMatchObject({
       providerId: "x",
@@ -101,6 +105,7 @@ describe("shownModel", () => {
 
   it("shows the model chosen last for a session whose pi has not started, with its remembered level", () => {
     const preferences = {
+      defaultModel: null,
       lastModel: { providerId: "openai", modelId: "gpt-6" },
       thinkingByModel: { "openai/gpt-6": "medium" as const },
     };
@@ -114,6 +119,33 @@ describe("shownModel", () => {
       levels: [],
       level: null,
     });
+  });
+
+  it("shows the default model and its level over the one chosen last", () => {
+    const preferences = {
+      defaultModel: { providerId: "catpaw-cli", modelId: "deepseek-v4.1-flash", thinkingLevel: "high" as const },
+      lastModel: { providerId: "sankuai-openai", modelId: "glm-5.2" },
+      thinkingByModel: {
+        "catpaw-cli/deepseek-v4.1-flash": "low" as const,
+        "sankuai-openai/glm-5.2": "medium" as const,
+      },
+    };
+
+    expect(shownModel(null, preferences, UNASKED)).toMatchObject({
+      providerId: "catpaw-cli",
+      modelId: "deepseek-v4.1-flash",
+      level: "high",
+    });
+  });
+
+  it("takes the remembered level for a default model without one", () => {
+    const preferences = {
+      defaultModel: { providerId: "catpaw-cli", modelId: "deepseek-v4.1-flash", thinkingLevel: null },
+      lastModel: null,
+      thinkingByModel: { "catpaw-cli/deepseek-v4.1-flash": "low" as const },
+    };
+
+    expect(shownModel(null, preferences, UNASKED)).toMatchObject({ level: "low" });
   });
 
   it("falls back to pi's own default, then to nothing", () => {

@@ -201,13 +201,18 @@ describe("pageModel", () => {
     defaultModel: { providerId: "x", modelId: "d" },
     error: null,
   };
-  const preferences = { lastModel: null, thinkingByModel: { "x/y": "low" as const } };
+  const preferences = { defaultModel: null, lastModel: null, thinkingByModel: { "x/y": "low" as const } };
 
   it("shows what a new session would start on, until the page chooses", () => {
     expect(pageModel({ ref: null, level: null }, preferences, list)).toMatchObject({ modelId: "d", level: null });
     expect(pageModel({ ref: null, level: "high" }, preferences, list)).toMatchObject({ modelId: "d", level: "high" });
     const remembered = { ...preferences, lastModel: { providerId: "x", modelId: "y" } };
     expect(pageModel({ ref: null, level: null }, remembered, list)).toMatchObject({ modelId: "y", level: "low" });
+    const byDefault = {
+      ...preferences,
+      defaultModel: { providerId: "x", modelId: "d", thinkingLevel: "high" as const },
+    };
+    expect(pageModel({ ref: null, level: null }, byDefault, list)).toMatchObject({ modelId: "d", level: "high" });
   });
 
   it("shows the model chosen, at the level chosen or else the one remembered for it", () => {
@@ -222,6 +227,11 @@ describe("pageModel", () => {
       fast: null,
     });
     expect(pageModel({ ref: chosen, level: "high" }, preferences, list)).toMatchObject({ modelId: "y", level: "high" });
+    const byDefault = {
+      ...preferences,
+      defaultModel: { providerId: "x", modelId: "d", thinkingLevel: "high" as const },
+    };
+    expect(pageModel({ ref: chosen, level: null }, byDefault, list)).toMatchObject({ modelId: "y" });
   });
 
   it("shows nothing without a model to show", () => {

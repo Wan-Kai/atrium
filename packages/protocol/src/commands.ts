@@ -10,7 +10,7 @@ import { Verdict } from "./reviews";
 import { ChatId, ContainerId, DirectionId, ProjectId, SessionId, TerminalId, WorkspaceId } from "./ids";
 import { Appearance, BranchName, ProxySetting, StatusBarChoices, TranslationLanguage } from "./listing";
 import { StudyKind, StudyRef } from "./study";
-import { CatalogModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
+import { CatalogModel, DefaultModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
 import { DiscoveredDirectory, LoginMethod, PiLatest, SetupState } from "./setup";
 import { Step, TranscriptItem } from "./transcript";
 import { PI_CONFIG_MAX_BYTES, PiConfigFile, PiConfigName, PiConfigRevision } from "./pi-config";
@@ -671,6 +671,7 @@ export const SetPreferencesCommand = z.strictObject({
   appearance: Appearance.optional(),
   statusBar: StatusBarChoices.optional(),
   titleModel: ModelRef.nullable().optional(),
+  defaultModel: DefaultModel.nullable().optional(),
   proxy: ProxySetting.nullable().optional(),
   inbox: z.boolean().optional(),
   translationLanguage: TranslationLanguage.optional(),

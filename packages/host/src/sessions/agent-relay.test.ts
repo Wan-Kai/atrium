@@ -170,6 +170,8 @@ function harness(...entries: CatalogEntry[]) {
   const clock = new FakeClock(1000);
   const { logger, records } = recordingTracing();
   let changes = 0;
+  /** How often the relay looked a session up in the catalog. */
+  let finds = 0;
   let ids = 0;
   let dirs = 0;
   let failCreate: unknown = null;
@@ -197,7 +199,10 @@ function harness(...entries: CatalogEntry[]) {
     },
     catalog: {
       list: () => [...sessions.values()],
-      find: (id) => sessions.get(id),
+      find: (id) => {
+        finds += 1;
+        return sessions.get(id);
+      },
       changeAgent: async (id, change) => {
         if (failWrites || failWritesTo.has(id)) throw new Error("index not written");
         const hold = holdWritesTo.get(id);
@@ -333,6 +338,7 @@ function harness(...entries: CatalogEntry[]) {
     records,
     reply,
     changes: () => changes,
+    finds: () => finds,
     failCreate: (error: unknown) => {
       failCreate = error;
     },
@@ -1724,6 +1730,18 @@ describe("agent relay: list, read, stop and models", () => {
       ["lost", "ended", "same"],
     ]);
     expect(h.relay.summary("main").agent).toBeNull();
+  });
+
+  it("summarizes a session it is already given without looking it up in the catalog again", () => {
+    const h = harness(session("main"), child("c1", "main", "audit"));
+    const before = h.finds();
+
+    expect(h.relay.summary("c1", h.entry("c1")).agent).toMatchObject({ handle: "audit" });
+
+    // The list summary supplies each entry it lists: a lookup per session made the index build quadratic.
+    expect(h.finds()).toBe(before);
+    expect(h.relay.summary("c1").agent).toMatchObject({ handle: "audit" });
+    expect(h.finds()).toBe(before + 1);
   });
 
   it("reads a task's reply a page at a time, the latest task by default, and says when there is none yet", async () => {

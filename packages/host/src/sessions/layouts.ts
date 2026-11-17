@@ -1,5 +1,7 @@
 import type { Layout } from "@atrium/protocol";
 import type { Clock } from "../platform/clock";
+import { errorCode } from "../platform/errors";
+import type { Logger } from "../platform/logger";
 import type { IndexFile } from "../store/index-file";
 import type { ClientLayout, LayoutsDocument, TabsRecord } from "../store/index-schema";
 
@@ -22,6 +24,8 @@ export interface Layouts {
   forgetContainers(containerIds: readonly string[]): Promise<void>;
   /** Whether any client has a tab of the session open. */
   isOpen(sessionId: string): boolean;
+  /** Waits for the change written last to reach the file; never rejects. */
+  flush(): Promise<void>;
 }
 
 /**
@@ -49,21 +53,29 @@ function withoutTab(tabs: TabsRecord, sessionId: string): TabsRecord {
  *
  * @remarks
  * Layouts are per client, so one client closing a tab does not touch another's (domain-model,
- * "已决定 4"). Only the `KEPT_CLIENTS` clients seen most recently are kept. Each change is written
- * before the call returns.
+ * "已决定 4"). Only the `KEPT_CLIENTS` clients seen most recently are kept. A change is kept in
+ * memory at once and written in the background, so switching tabs or starting a conversation does
+ * not wait for the disk; the host flushes it when it stops, and a crash may lose the last change
+ * (domain-model §1, "索引的存储").
  *
- * @sideEffects none until a change; then writes `layouts.json`.
- * @param options - The loaded file and the clock.
+ * @sideEffects none until a change; then writes `layouts.json` in the background.
+ * @param options - The loaded file, the clock and the logger a failed write goes to.
  * @returns The layouts.
  */
-export function createLayouts(options: { readonly file: IndexFile<LayoutsDocument>; readonly clock: Clock }): Layouts {
+export function createLayouts(options: {
+  readonly file: IndexFile<LayoutsDocument>;
+  readonly clock: Clock;
+  readonly logger: Pick<Logger, "warn">;
+}): Layouts {
   /**
-   * Changes one client's layout and writes the file.
+   * Keeps one client's layout and writes the file in the background.
    *
    * @remarks
-   * Stamps the client as seen and drops the clients seen longest ago beyond `KEPT_CLIENTS`.
+   * Stamps the client as seen and drops the clients seen longest ago beyond `KEPT_CLIENTS`. The
+   * write failing only means the change will not survive a restart: it is logged and the command
+   * that made it still succeeds.
    *
-   * @sideEffects Writes `layouts.json`.
+   * @sideEffects Writes `layouts.json` in the background; may log.
    * @param clientId - The client.
    * @param change - The change.
    */
@@ -79,23 +91,27 @@ export function createLayouts(options: { readonly file: IndexFile<LayoutsDocumen
     const clients = [changed, ...document.clients.filter((client) => client.clientId !== clientId)]
       .toSorted((a, b) => b.seenAt - a.seenAt)
       .slice(0, KEPT_CLIENTS);
-    await options.file.save({ ...document, clients });
+    options.file.save({ ...document, clients }).catch((error: unknown) => {
+      options.logger.warn({ err: error, code: errorCode(error) }, "layouts not written");
+    });
   }
 
   /**
-   * Changes every client's layout and writes the file if any changed.
+   * Changes every client's layout and writes the file in the background if any changed.
    *
    * @remarks
-   * For sessions or containers that went away.
+   * For sessions or containers that went away. See `update`.
    *
-   * @sideEffects Writes `layouts.json`.
+   * @sideEffects Writes `layouts.json` in the background; may log.
    * @param change - The change.
    */
   async function updateAll(change: (layout: ClientLayout) => ClientLayout): Promise<void> {
     const document = options.file.read();
     const clients = document.clients.map(change);
     if (JSON.stringify(clients) === JSON.stringify(document.clients)) return;
-    await options.file.save({ ...document, clients });
+    options.file.save({ ...document, clients }).catch((error: unknown) => {
+      options.logger.warn({ err: error, code: errorCode(error) }, "layouts not written");
+    });
   }
 
   return {
@@ -140,5 +156,6 @@ export function createLayouts(options: { readonly file: IndexFile<LayoutsDocumen
       options.file
         .read()
         .clients.some((client) => Object.values(client.tabs).some((tabs) => tabs.open.includes(sessionId))),
+    flush: () => options.file.flush(),
   };
 }

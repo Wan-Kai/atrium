@@ -234,7 +234,16 @@ export interface AgentRelay {
   /** What a session's controller is told of its deliveries and gives back of its runs. */
   deliveries(sessionId: string): ControllerDeliveries;
   /** What a session's summary shows of its agent state. */
-  summary(sessionId: string): { readonly agent: SessionAgent | null; readonly heldDeliveries: number };
+  /**
+   * What the list says of a session's agent and its held deliveries.
+   *
+   * @remarks Takes the entry the caller already has, as the list summary does for every session,
+   * instead of looking it up in the catalog again for each one.
+   */
+  summary(
+    sessionId: string,
+    known?: CatalogEntry,
+  ): { readonly agent: SessionAgent | null; readonly heldDeliveries: number };
   /** Whether a dialog waits for you in a session, as its control says. */
   asking(sessionId: string, asking: boolean): void;
   /** A tab of a session closed: an agent child idle without one stops its pi. */
@@ -2216,8 +2225,8 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
       };
     },
 
-    summary(sessionId) {
-      const entry = find(sessionId);
+    summary(sessionId, known) {
+      const entry = known ?? find(sessionId);
       const waiting = entry?.deliveries.length ?? 0;
       // Only the restart's: "全部继续" lets those go (SPEC-0002, "送达").
       const heldDeliveries = held.get(sessionId) === "restart" ? waiting : 0;

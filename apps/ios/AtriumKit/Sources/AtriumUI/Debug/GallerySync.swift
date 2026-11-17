@@ -127,7 +127,7 @@
       \(session("s9", in: "w1", prompt: "缓存命中率统计", updated: now - 120_000, running: true)),\
       \(session("s10", in: "w1", prompt: "过期时间写进文档", updated: now - 86_400_000))],\
       "layout":{"container":null,"tabs":{}},"preferences":{"setupDone":true,"appearance":"system","lastModel":null,\
-      "thinkingByModel":{},"lastFast":false,"statusBar":{},"titleModel":null,"proxy":null,"inbox":true,\
+      "thinkingByModel":{},"defaultModel":null,"lastFast":false,"statusBar":{},"titleModel":null,"proxy":null,"inbox":true,\
       "translationLanguage":"简体中文"},"resets":[],"learningDir":"~/Atrium/Learning"}
       """
     }

@@ -20,6 +20,7 @@ describe("reply translation protocol", () => {
       appearance: "system",
       lastModel: null,
       thinkingByModel: {},
+      defaultModel: null,
       lastFast: false,
       statusBar: {},
       titleModel: null,
