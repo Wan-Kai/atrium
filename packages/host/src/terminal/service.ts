@@ -184,6 +184,15 @@ const AGENT_QUIET_MAX_MS = 10_000;
 /** How long `agentWait` waits before answering that it is still busy. */
 const AGENT_WAIT_TIMEOUT_MS = 30_000;
 
+/** How often queued terminal output is flushed, in milliseconds (SPEC-0009, "流控"). */
+const OUTPUT_FLUSH_MS = 16;
+
+/** The most bytes one flush sends; a fast program is paced rather than allowed to fill the socket. */
+const OUTPUT_FLUSH_BYTES = 64 * 1024;
+
+/** The most output held for a terminal before the oldest is dropped. */
+const OUTPUT_QUEUE_MAX = 2 * 1024 * 1024;
+
 /** How still the screen must be before a write counts as settled (SPEC-0009, "agent 操作终端"). */
 const AGENT_SETTLE_QUIET_MS = 120;
 
@@ -214,6 +223,13 @@ interface Running {
   reported: Reported | null;
   /** Whether the program has bracketed paste on, so text can be sent as one paste. */
   pasteEnabled: boolean;
+  /** Output waiting to go out, and how many bytes it is; see `emitOutput`. */
+  queue: string[];
+  queued: number;
+  /** Stops the pending flush, if one is scheduled. */
+  cancelFlush: (() => void) | null;
+  /** Bytes dropped since the last flush, reported once on the screen. */
+  dropped: number;
   /** Stops the `SIGKILL` escalation of a close under way. */
   cancelKill: (() => void) | null;
   /** Resolves the `close` that is waiting for this terminal, when it is waiting. */
@@ -309,6 +325,93 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
    */
   /** One close per terminal, shared by whoever asks for it (SPEC-0009, "生命周期"). */
   const closing = new Map<string, Promise<void>>();
+
+  /**
+   * Sends what a terminal wrote, at the pace a window can take.
+   *
+   * @remarks
+   * One chunk per write would let `yes` fill the WebSocket until the server closes the whole
+   * connection, chat included (SPEC-0009, "流控"). Output is queued and flushed every
+   * {@link OUTPUT_FLUSH_MS} up to {@link OUTPUT_FLUSH_BYTES}; past {@link OUTPUT_QUEUE_MAX} the
+   * oldest is dropped and the screen says so, which is honest and keeps the connection alive.
+   *
+   * @sideEffects Queues, schedules a flush, and sends.
+   * @param entry - The terminal.
+   * @param data - What it wrote.
+   */
+  const emitOutput = (entry: Running, data: string): void => {
+    // A program can write megabytes in one go; splitting keeps the flush's byte budget meaningful
+    // and lets the queue drop the oldest without dropping everything.
+    let rest = data;
+    while (rest !== "") {
+      let end = Math.min(rest.length, OUTPUT_FLUSH_BYTES);
+      const last = rest.charCodeAt(end - 1);
+      // Never cut a surrogate pair in half.
+      if (end < rest.length && last >= 0xd800 && last <= 0xdbff) end += 1;
+      const piece = rest.slice(0, end);
+      entry.queue.push(piece);
+      entry.queued += Buffer.byteLength(piece, "utf8");
+      rest = rest.slice(end);
+    }
+    while (entry.queued > OUTPUT_QUEUE_MAX && entry.queue.length > 1) {
+      const old = entry.queue.shift();
+      if (old === undefined) break;
+      entry.queued -= Buffer.byteLength(old, "utf8");
+      entry.dropped += Buffer.byteLength(old, "utf8");
+    }
+    if (entry.cancelFlush !== null) return;
+    entry.cancelFlush = trackedTimeout(
+      options.clock,
+      options.resources,
+      () => {
+        entry.cancelFlush = null;
+        flushOutput(entry);
+      },
+      OUTPUT_FLUSH_MS,
+    );
+  };
+
+  /**
+   * Sends one flush worth of queued output.
+   *
+   * @remarks
+   * A drop is reported once, in the output itself, so a person looking at the screen knows why it
+   * jumped; the bytes themselves are never logged.
+   *
+   * @sideEffects Sends `terminal_output`, and schedules the next flush while output is left.
+   * @param entry - The terminal.
+   */
+  const flushOutput = (entry: Running): void => {
+    let text = "";
+    let bytes = 0;
+    while (entry.queue.length > 0 && bytes < OUTPUT_FLUSH_BYTES) {
+      const chunk = entry.queue.shift();
+      if (chunk === undefined) break;
+      bytes += Buffer.byteLength(chunk, "utf8");
+      text += chunk;
+    }
+    entry.queued -= bytes;
+    if (entry.dropped > 0) {
+      options.logger.warn(
+        { code: "terminal_output_dropped", terminalId: entry.terminal.id },
+        "terminal output dropped",
+      );
+      text = `\r\n\u001b[2m[output dropped: ${String(entry.dropped)} bytes]\u001b[0m\r\n${text}`;
+      entry.dropped = 0;
+    }
+    if (text !== "") tell(entry, { type: "terminal_output", terminalId: entry.terminal.id, data: text });
+    if (entry.queue.length > 0) {
+      entry.cancelFlush = trackedTimeout(
+        options.clock,
+        options.resources,
+        () => {
+          entry.cancelFlush = null;
+          flushOutput(entry);
+        },
+        OUTPUT_FLUSH_MS,
+      );
+    }
+  };
 
   /**
    * Ends a terminal once, and waits for it.
@@ -570,6 +673,10 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
         recentWrites: [],
         reported: null,
         pasteEnabled: false,
+        queue: [],
+        queued: 0,
+        cancelFlush: null,
+        dropped: 0,
         cancelKill: null,
         resolveClose: null,
         exited: false,
@@ -583,7 +690,7 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
         entry.reported = reportedState(data) ?? entry.reported;
         entry.lastOutputAt = options.clock.now();
         entry.outputs += 1;
-        tell(entry, { type: "terminal_output", terminalId: id, data });
+        emitOutput(entry, data);
       });
       pty.onExit(({ exitCode }) => {
         settle(entry, exitCode);

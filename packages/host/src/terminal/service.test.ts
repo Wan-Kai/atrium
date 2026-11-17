@@ -89,6 +89,11 @@ function harness(options: { readonly childrenFails?: boolean } = {}) {
   return { service, clock, sent, spawned, warnings, dirs };
 }
 
+/** What each `terminal_output` event carried, in order. */
+function outputTexts(sent: Array<[string, TerminalEvent]>): string[] {
+  return sent.flatMap(([, event]) => (event.type === "terminal_output" ? [event.data] : []));
+}
+
 /** The last event of a type, for assertions. */
 function lastEvent(sent: Array<[string, TerminalEvent]>, type: TerminalEvent["type"]): TerminalEvent | undefined {
   return sent.filter(([, event]) => event.type === type).at(-1)?.[1];
@@ -220,15 +225,35 @@ describe("titles and delivery", () => {
   });
 
   it("sends a rebuilt tab's output to the connection it came back on", () => {
-    const { service, sent, spawned } = harness();
+    const { service, clock, sent, spawned } = harness();
     const terminal = openIn(service);
     // The page reloaded: same client, a new socket.
     service.attach({ connectionId: "conn-9", clientId: CLIENT }, terminal.id);
     spawned[0]?.output("after reload");
+    clock.advance(20);
     expect(sent.at(-1)).toStrictEqual([
       "conn-9",
       { type: "terminal_output", terminalId: terminal.id, data: "after reload" },
     ]);
+  });
+
+  it("paces output instead of letting a burst fill the connection", () => {
+    const { service, clock, sent, spawned } = harness();
+    openIn(service);
+    // 100 KiB in one write: the first flush is capped, the rest follows.
+    spawned[0]?.output("a".repeat(100 * 1024));
+    clock.advance(20);
+    expect(outputTexts(sent).map((text) => text.length)).toStrictEqual([64 * 1024]);
+    clock.advance(20);
+    expect(outputTexts(sent).map((text) => text.length)).toStrictEqual([64 * 1024, 100 * 1024 - 64 * 1024]);
+  });
+
+  it("drops the oldest output past the queue cap, and says so on the screen", () => {
+    const { service, clock, sent, spawned } = harness();
+    openIn(service);
+    spawned[0]?.output("x".repeat(3 * 1024 * 1024));
+    clock.advance(20);
+    expect(outputTexts(sent).join("")).toContain("[output dropped");
   });
 
   it("stops listing a terminal once it ended", () => {
@@ -268,9 +293,10 @@ describe("attach, write and resize", () => {
 
 describe("output and exit", () => {
   it("sends output to the connection and keeps it for replay", () => {
-    const { service, sent, spawned } = harness();
+    const { service, clock, sent, spawned } = harness();
     const terminal = openIn(service);
     spawned[0]?.output("hello\r\n");
+    clock.advance(20);
     expect(sent.at(-1)).toStrictEqual([CONN, { type: "terminal_output", terminalId: terminal.id, data: "hello\r\n" }]);
     expect(service.attach(CALLER, terminal.id).history).toBe("hello\r\n");
   });
