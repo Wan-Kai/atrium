@@ -479,7 +479,8 @@ describe("atriumPlan", () => {
         "session_start",
         "before_agent_start",
       ],
-      12,
+      // The six terminal tools come with every session that is not a sub-conversation (SPEC-0009).
+      18,
       ["web_search", "web_fetch"],
       ["atrium-agent", "atrium-task", "atrium-visuals", "atrium-study"],
     ]);

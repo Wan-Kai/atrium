@@ -11,8 +11,13 @@ import type { PaneStorage } from "./panes";
 /** The right panel's two tabs. */
 export type PanelTab = "files" | "changes";
 
-/** A viewer tab: a file, or a workspace's changes all together. */
+/** A viewer tab: a file, a workspace's changes all together, or one of its terminals (SPEC-0009). */
 export type ViewerTab =
+  | {
+      readonly kind: "terminal";
+      /** The host's terminal; attaching to it is what shows the screen. */
+      readonly id: string;
+    }
   | {
       readonly kind: "file";
       /** Relative to the workspace. */
@@ -102,7 +107,32 @@ export const NO_VIEW: ContainerView = {
  * @returns Its key.
  */
 export function viewerKey(tab: ViewerTab): string {
-  return tab.kind === "diff" ? "diff" : `file:${tab.path}`;
+  if (tab.kind === "diff") return "diff";
+  if (tab.kind === "terminal") return `terminal:${tab.id}`;
+  return `file:${tab.path}`;
+}
+
+/**
+ * Opens a terminal in a viewer tab, or shows the one already open for it.
+ *
+ * @remarks
+ * A terminal tab lives in this window only, like a file's (domain-model, "已决定 19"): the host
+ * keeps the PTY, the window keeps the tab. Closing it ends the terminal through the caller.
+ *
+ * @sideEffects Writes the store.
+ * @param views - The views.
+ * @param containerId - The container the terminal belongs to.
+ * @param id - The host's terminal id.
+ */
+export function openTerminalTab(views: StoreApi<WorkspaceViews>, containerId: string, id: string): void {
+  const key = `terminal:${id}`;
+  update(views, containerId, (view) => ({
+    ...view,
+    tabs: view.tabs.some((tab) => viewerKey(tab) === key) ? view.tabs : [...view.tabs, { kind: "terminal", id }],
+    active: key,
+    reveal: null,
+    fileReveal: null,
+  }));
 }
 
 /**

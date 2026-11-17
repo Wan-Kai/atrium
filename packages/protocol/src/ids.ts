@@ -30,6 +30,10 @@ export type ChatId = z.infer<typeof ChatId>;
 export const DirectionId = z.string().regex(/^lrn_[0-9A-Za-z][0-9A-Za-z_-]{0,63}$/);
 export type DirectionId = z.infer<typeof DirectionId>;
 
+/** A terminal's id: opaque, minted by the host when the PTY starts (SPEC-0009). */
+export const TerminalId = z.string().regex(/^term_[0-9a-f]{16}$/);
+export type TerminalId = z.infer<typeof TerminalId>;
+
 /** Where a session lives: a workspace, a chat or a learning direction. */
 export const ContainerId = z.union([WorkspaceId, ChatId, DirectionId]);
 export type ContainerId = z.infer<typeof ContainerId>;

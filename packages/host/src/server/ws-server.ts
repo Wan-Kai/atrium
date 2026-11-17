@@ -105,6 +105,8 @@ export interface WsServerOptions {
   readonly changes: Pick<ChangesService, "watchChanges" | "watchDiff" | "disconnect">;
   /** A workspace's files, for the right panel's file tree and the viewer tabs. */
   readonly files: RouterOptions["files"];
+  /** Terminals on this Mac (SPEC-0009). */
+  readonly terminals: RouterOptions["terminals"];
   /** Inline visuals: their commands, their pages under `/visual/`; a closed connection stops watching them. */
   readonly visuals: Pick<
     VisualService,
@@ -201,6 +203,7 @@ export async function startWsServer(options: WsServerOptions): Promise<RunningSe
     changes: options.changes,
     files: options.files,
     visuals: options.visuals,
+    terminals: options.terminals,
     tracer: options.tracer,
     logger: options.logger,
     containerOfSession: options.containerOfSession,

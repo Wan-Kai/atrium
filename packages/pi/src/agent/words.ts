@@ -493,6 +493,32 @@ const RESULT_WORDS: { readonly [Op in WordedOp]: (answer: CallResults[Op]) => st
           `Sent to "${sent.to}" (session ${sent.sessionId}) as task ${sent.taskId}${sent.queued ? "; it runs after the sub-agent's current run" : ""}.`,
           STARTED,
         ].join("\n"),
+  open_terminal: (opened) =>
+    [
+      `Opened a terminal in ${opened.directory} (${opened.terminalId}), titled "${opened.title}".`,
+      "Its output does not come back here. Read the screen (terminal_read), type (terminal_type), press keys (terminal_key), wait (terminal_wait).",
+    ].join("\n"),
+  read_terminal: (reading) =>
+    [
+      reading.state === "exited"
+        ? `The terminal has ended (exit code ${reading.exitCode ?? "unknown"}).`
+        : "The terminal is still running.",
+      ...(reading.reported === null ? [] : [`It reports: ${reading.reported.state}.`]),
+      reading.text === "" ? "(the screen is blank)" : reading.text,
+    ].join("\n"),
+  type_terminal: (typed) =>
+    typed.settled
+      ? "Typed, and the screen has settled: read it with terminal_read."
+      : "Typed, but the screen was still changing when this returned: read it, and wait if it is still moving.",
+  key_terminal: (pressed) =>
+    pressed.settled ? "Pressed, and the screen has settled." : "Pressed, but the screen is still changing.",
+  wait_terminal: (waited) =>
+    waited.exited
+      ? `The terminal ended (exit code ${waited.exitCode ?? "unknown"}).`
+      : waited.quiet
+        ? "The screen has been quiet. That means it stopped drawing, not that its program finished: read the screen before deciding."
+        : "Still printing when the wait ran out. Read the screen, or wait again.",
+  close_terminal: () => "Terminal closed.",
   reply: (replied) =>
     replied.delivered === true
       ? "Answer delivered."

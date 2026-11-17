@@ -1,0 +1,42 @@
+[
+  {
+    "file": "packages/host/src/terminal/service.ts",
+    "from": "if (entry.outputs > from && now - entry.lastOutputAt >= AGENT_SETTLE_QUIET_MS) return resolve(true);",
+    "to": "if (now - entry.lastOutputAt >= AGENT_SETTLE_QUIET_MS) return resolve(true);",
+    "test": "packages/host/src/terminal/service.test.ts",
+    "name": "says whether the screen settled, so the model need not guess",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/terminal/service.ts",
+    "from": "if (until === \"quiet\" && entry.outputs > from && now - entry.lastOutputAt >= quietMs) {",
+    "to": "if (entry.outputs > from && now - entry.lastOutputAt >= quietMs) {",
+    "test": "packages/host/src/terminal/service.test.ts",
+    "name": "can wait for the process to end rather than for silence",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/terminal/service.ts",
+    "from": "const agentOwned = entry.terminal.origin === \"agent\";",
+    "to": "const agentOwned = false;",
+    "test": "packages/host/src/terminal/service.test.ts",
+    "name": "lets a window show a terminal an agent opened, without taking it from the agent",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/terminal/service.ts",
+    "from": "if (found.terminal.origin !== \"agent\" || found.terminal.sessionId !== sessionId) {",
+    "to": "if (false) {",
+    "test": "packages/host/src/terminal/service.test.ts",
+    "name": "will not read or touch a terminal the user opened",
+    "project": "unit"
+  },
+  {
+    "file": "packages/host/src/terminal/service.ts",
+    "from": "const body = entry.pasteEnabled ? `\\u001b[200~${text}\\u001b[201~` : text;",
+    "to": "const body = text;",
+    "test": "packages/host/src/terminal/service.test.ts",
+    "name": "types text, as one paste when the program asked for bracketed paste",
+    "project": "unit"
+  }
+]

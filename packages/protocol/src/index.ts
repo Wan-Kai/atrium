@@ -230,6 +230,7 @@ export {
   isWorkspaceId,
   ProjectId,
   SessionId,
+  TerminalId,
   WorkspaceId,
 } from "./ids";
 export {
@@ -355,4 +356,28 @@ export {
 export { Cadence, INTERVAL_MAX_MINUTES, SchedulePlace } from "./schedule-cadence";
 export { ScheduleId, ScheduleLast, ScheduleSummary, SchedulesUpdatedEvent } from "./schedules";
 export { VISUAL_FILE_MAX, VISUAL_MESSAGE_MAX, VisualChangedEvent, VisualPath, VisualSource } from "./visuals";
+export {
+  TerminalAttachCommand,
+  TerminalCloseCommand,
+  TerminalOpenCommand,
+  TerminalResizeCommand,
+  TerminalWriteCommand,
+} from "./commands";
+export {
+  TERMINAL_COLS,
+  TERMINAL_HISTORY_BYTES,
+  TERMINAL_HISTORY_LINES,
+  TERMINAL_MAX_PER_CONTAINER,
+  TERMINAL_ROWS,
+  TERMINAL_WRITE_MAX,
+  Terminal,
+  TerminalClosedEvent,
+  TerminalCols,
+  TerminalExitedEvent,
+  TerminalOpenedEvent,
+  TerminalOrigin,
+  TerminalOutputEvent,
+  TerminalRows,
+  TerminalState,
+} from "./terminal";
 export { seenLength, seenText, splitSeen } from "./text";

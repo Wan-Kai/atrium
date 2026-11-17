@@ -6,6 +6,7 @@ import {
   isDirectionId,
   isWorkspaceId,
   loadingView,
+  isChatId,
 } from "@atrium/client";
 import type { DiffStat, SessionModel, SessionStudy } from "@atrium/protocol";
 import { type ReactNode, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -843,7 +844,9 @@ export function ConversationArea({
     (index) => index.directions.find((one) => one.id === directionId)?.archived ?? false,
   );
   /** The container whose viewer tabs show here: the workspace, or the direction. */
-  const viewerId = workspaceId ?? directionId;
+  // A chat has no files to look at, but it does have terminals (SPEC-0009), and a terminal tab
+  // shows in the same place a file's does.
+  const viewerId = workspaceId ?? directionId ?? (containerId !== null && isChatId(containerId) ? containerId : null);
   // A chip's file opens in a pinned tab of the workspace (SPEC-0001, "查看标签 · 从对话里打开"),
   // or of the direction, as a reply's file link there does (SPEC-0008, ML4).
   const fileOpener = useMemo(() => {

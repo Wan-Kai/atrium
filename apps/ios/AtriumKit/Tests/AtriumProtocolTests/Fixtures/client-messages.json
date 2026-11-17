@@ -1,14 +1,14 @@
 [
   {
     "type": "hello",
-    "protocolVersion": 40,
+    "protocolVersion": 41,
     "clientId": "c1",
     "token": "t",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
   {
     "type": "hello",
-    "protocolVersion": 40,
+    "protocolVersion": 41,
     "clientId": "dev_0123456789abcdef",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
   },
@@ -714,6 +714,41 @@
     "requestId": "r38m",
     "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
     "scheduleId": "rul_a"
+  },
+  {
+    "type": "terminal_open",
+    "requestId": "r41a",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "containerId": "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
+    "cols": 112,
+    "rows": 51
+  },
+  {
+    "type": "terminal_attach",
+    "requestId": "r41b",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "terminalId": "term_0123456789abcdef"
+  },
+  {
+    "type": "terminal_write",
+    "requestId": "r41c",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "terminalId": "term_0123456789abcdef",
+    "data": "ls\r"
+  },
+  {
+    "type": "terminal_resize",
+    "requestId": "r41d",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "terminalId": "term_0123456789abcdef",
+    "cols": 100,
+    "rows": 40
+  },
+  {
+    "type": "terminal_close",
+    "requestId": "r41e",
+    "traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+    "terminalId": "term_0123456789abcdef"
   },
   {
     "type": "answer_review",

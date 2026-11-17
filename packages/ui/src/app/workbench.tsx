@@ -1,4 +1,4 @@
-import { type AtriumClient, type IndexView, isDirectionId, isWorkspaceId } from "@atrium/client";
+import { type AtriumClient, CommandError, type IndexView, isDirectionId, isWorkspaceId } from "@atrium/client";
 import type { Appearance, IndexFileName } from "@atrium/protocol";
 import { SidebarLeft, X } from "../design/icons";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -35,6 +35,7 @@ import {
   closeViewer,
   createWorkspaceViews,
   currentTab,
+  openTerminalTab,
   showViewer,
   tabOrder,
   viewOf,
@@ -605,6 +606,11 @@ function MainWindow({
     container === null || !isDirectionId(container) ? undefined : state.directions.find((one) => one.id === container),
   );
   const [panes] = useState(() => createPanes(localStorage));
+  /** What is being created right now, shown as a waiting tab until the host answers. */
+  const [pending, setPending] = useState<"session" | "terminal" | null>(null);
+  const terminals = useStore(client.terminals, (state) => state.terminals);
+  /** Terminals an agent opened whose tab this window already made; closing one does not bring it back. */
+  const agentTabsOpened = useRef(new Set<string>());
   const [views] = useState(() => createWorkspaceViews(localStorage));
   const [area] = useState(createTaskArea);
   const tasksOpen = useStore(area, (state) => state.open);
@@ -619,6 +625,15 @@ function MainWindow({
     direction === undefined || viewer !== null ? false : (state.homes[direction.id] ?? false) || sessionId === null,
   );
   useDraftCleanup(index, client);
+  useEffect(() => {
+    // An agent's terminal appears as a tab of its own container, wherever this window happens to
+    // be (SPEC-0009): the host broadcasts it, and nothing else would draw it.
+    for (const terminal of terminals) {
+      if (terminal.origin !== "agent" || agentTabsOpened.current.has(terminal.id)) continue;
+      agentTabsOpened.current.add(terminal.id);
+      openTerminalTab(views, terminal.containerId, terminal.id);
+    }
+  });
   useEffect(() => {
     // The sidebar's "任务" count follows the list wherever the window is; the client asks again on each connection.
     client.watchTasks(true).catch(() => undefined);
@@ -648,6 +663,71 @@ function MainWindow({
   // On the new-workspace page or a learning page, under a viewer tab or a direction's home, no session shows.
   const sessionShown = pageProject === null && learningPage === null && viewer === null && !homeShown;
   useSeenAttention(client, index, sessionShown ? sessionId : null);
+  /**
+   * Opens a terminal in this container and shows it as a tab.
+   *
+   * @remarks
+   * The host picks the directory from the container (SPEC-0009); the size here is a first guess
+   * that the terminal's own layout replaces as soon as it is on screen.
+   *
+   * @sideEffects Sends `terminal_open`, then opens the tab.
+   */
+  const openTerminalHere = (): void => {
+    if (container === null) return;
+    setPending("terminal");
+    void client
+      .openTerminal(container, 100, 30)
+      .then(({ terminal }) => {
+        openTerminalTab(views, container, terminal.id);
+        return terminal;
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        setPending(null);
+      });
+  };
+  /**
+   * Closes a terminal tab, asking first when something is still running in it.
+   *
+   * @remarks
+   * The host answers `terminal_has_process` rather than ending a program without being asked
+   * (SPEC-0009, "生命周期"); agreeing sends the same close again with `force`.
+   *
+   * @sideEffects Ends a terminal, then closes its tab and shows the session again.
+   * @param terminalId - The terminal the tab shows.
+   */
+  const closeTerminalHere = (terminalId: string): void => {
+    if (container === null) return;
+    const key = `terminal:${terminalId}`;
+    /**
+     * Closes the tab and shows the session again.
+     *
+     * @remarks
+     * Closing the terminal's last tab leaves the container's session showing, as closing a file's tab does.
+     *
+     * @sideEffects Writes the views and sends `open_session` when a session shows next.
+     */
+    const finish = (): void => {
+      const next = closeViewer(views, container, key, []);
+      if (next !== null) void client.openSession(next).catch(() => undefined);
+    };
+    /**
+     * Sends the close, asking about the program still running when the host says so.
+     *
+     * @remarks
+     * No question is asked when nothing is running: the host only refuses when a program is.
+     *
+     * @sideEffects Sends `terminal_close`.
+     * @param force - Whether the user already agreed to end what is running.
+     */
+    const attempt = (force: boolean): void => {
+      void client.closeTerminal(terminalId, force).then(finish, (error: unknown) => {
+        const running = error instanceof CommandError && error.code === "terminal_has_process";
+        if (running && window.confirm("终端里还有程序在跑，关闭会结束它。")) attempt(true);
+      });
+    };
+    attempt(false);
+  };
   /**
    * Leaves the new-workspace page, the learning pages and the task area.
    *
@@ -786,10 +866,18 @@ function MainWindow({
             <TabBar
               client={client}
               containerId={container}
+              onNewTerminal={openTerminalHere}
+              onCloseTerminal={closeTerminalHere}
               onNew={() => {
                 if (direction !== undefined) showHome(learning, direction.id, false);
-                fireAndForget(createHere(client));
+                setPending("session");
+                void createHere(client)
+                  .catch(() => undefined)
+                  .finally(() => {
+                    setPending(null);
+                  });
               }}
+              pending={pending}
               panes={panes}
               views={views}
               home={

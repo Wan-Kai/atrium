@@ -30,6 +30,7 @@ import type { ReceiptBook } from "../remote/receipts";
 import type { ReviewHub } from "../reviews/review-hub";
 import type { ScheduleCommands } from "../tasks/schedule-commands";
 import type { TaskCommands } from "../tasks/task-commands";
+import type { TerminalService } from "../terminal/service";
 import type { VisualService } from "../visuals/visual-service";
 
 /**
@@ -67,6 +68,8 @@ export interface RouterOptions {
   readonly files: WorkspaceFiles;
   /** Inline visuals: their addresses and the messages sent from them (SPEC-0007). */
   readonly visuals: Pick<VisualService, "resolve" | "resolveForDirection" | "send" | "release">;
+  /** Terminals on this Mac (SPEC-0009); a phone may not drive one. */
+  readonly terminals: Pick<TerminalService, "open" | "attach" | "write" | "resize" | "close">;
   readonly index: IndexCommands;
   /** Learning directions (SPEC-0008). */
   readonly study: Pick<
@@ -154,6 +157,8 @@ export function createRouter(options: RouterOptions): Route {
     if (connection.origin === "remote" && namesLearning(command, options.containerOfSession)) {
       throw new CommandError("local_only");
     }
+    // Events go to the socket; ownership follows the client across reconnects.
+    const caller = { connectionId: connection.id, clientId: connection.clientId };
     switch (command.type) {
       case "ping":
         return {};
@@ -324,6 +329,26 @@ export function createRouter(options: RouterOptions): Route {
         return options.sessions.fetchStep(command);
       case "fetch_image":
         return options.sessions.fetchImage(command);
+      case "terminal_open":
+        return {
+          terminal: options.terminals.open({
+            caller,
+            containerId: command.containerId,
+            cols: command.cols,
+            rows: command.rows,
+          }),
+        };
+      case "terminal_attach":
+        return options.terminals.attach(caller, command.terminalId);
+      case "terminal_write":
+        options.terminals.write(caller, command.terminalId, command.data);
+        return {};
+      case "terminal_resize":
+        options.terminals.resize(caller, command.terminalId, command.cols, command.rows);
+        return {};
+      case "terminal_close":
+        await options.terminals.close(caller, command.terminalId, command.force ?? false);
+        return {};
       case "open_session":
         return options.sessions.openSession(connection.clientId, command.sessionId);
       case "steer":

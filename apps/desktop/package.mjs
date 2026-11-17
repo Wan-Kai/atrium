@@ -1,6 +1,6 @@
 import { packager } from "@electron/packager";
 import { execFile } from "node:child_process";
-import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -30,7 +30,31 @@ async function stageApp() {
     await cp(join(repo, "packages", "host", "dist", file), join(stage, "host", file));
   }
   await cp(join(repo, "packages", "ui", "dist"), join(stage, "ui"), { recursive: true });
+  await stageTerminal(stage);
   return stage;
+}
+
+/**
+ * Puts node-pty beside the host, for terminals (SPEC-0009).
+ *
+ * @remarks
+ * A native addon cannot be inlined into the host's bundle, and `app.asar`-free is already the
+ * rule here. Only the package's JS, its manifest and this machine's prebuilt binary are copied:
+ * 412 KiB, where the whole package is 62 MiB of sources. `spawn-helper` arrives from npm without
+ * its execute bit, so it is set here as well as at run time.
+ *
+ * @sideEffects Creates `native/node-pty` in the stage and changes a mode.
+ * @param stage - The app directory being laid out.
+ */
+async function stageTerminal(stage) {
+  const from = join(repo, "packages", "host", "node_modules", "node-pty");
+  const to = join(stage, "native", "node-pty");
+  for (const file of ["package.json", "lib"]) {
+    await cp(join(from, file), join(to, file), { recursive: true });
+  }
+  const platform = `${process.platform}-${process.arch}`;
+  await cp(join(from, "prebuilds", platform), join(to, "prebuilds", platform), { recursive: true });
+  await chmod(join(to, "prebuilds", platform, "spawn-helper"), 0o755);
 }
 
 /**
@@ -64,6 +88,10 @@ async function sign(bundle) {
  * is signed again; it is not notarized. No asar: the system Node runs the login program, and it
  * cannot read one. The icon is Atrium's cat (design-language.md, "标志").
  *
+ * @remarks
+ * `ATRIUM_ELECTRON_ZIP_DIR` names a directory holding `electron-v<version>-<platform>-<arch>.zip`,
+ * so a machine without the network can package from a cached download instead of fetching one.
+ *
  * @sideEffects Replaces `out/Atrium-darwin-<arch>`; runs `codesign`; prints the app's path.
  */
 async function packageApp() {
@@ -83,6 +111,9 @@ async function packageApp() {
       prune: false,
       overwrite: true,
       quiet: true,
+      ...(process.env["ATRIUM_ELECTRON_ZIP_DIR"] === undefined
+        ? {}
+        : { electronZipDir: process.env["ATRIUM_ELECTRON_ZIP_DIR"] }),
     });
     const bundle = join(outDir, "Atrium.app");
     console.error(`signed with ${await sign(bundle)}`);
