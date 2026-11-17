@@ -311,7 +311,7 @@ describe("output and exit", () => {
     expect(service.attach(CALLER, terminal.id).history).toBe("hello\r\n");
   });
 
-  it("marks the terminal ended and then releases it", () => {
+  it("keeps the record after the program ends, so its screen and code can still be read", async () => {
     const { service, sent, spawned } = harness();
     const terminal = openIn(service);
     spawned[0]?.exit(0);
@@ -320,8 +320,11 @@ describe("output and exit", () => {
       terminalId: terminal.id,
       exitCode: 0,
     });
-    expect(lastEvent(sent, "terminal_closed")).toStrictEqual({ type: "terminal_closed", terminalId: terminal.id });
+    // Not closed yet: that is what closing the tab does.
+    expect(lastEvent(sent, "terminal_closed")).toBeUndefined();
     expect(service.openTerminals()).toStrictEqual([]);
+    await service.close(CALLER, terminal.id, true);
+    expect(lastEvent(sent, "terminal_closed")).toStrictEqual({ type: "terminal_closed", terminalId: terminal.id });
   });
 });
 
@@ -715,9 +718,7 @@ describe("what a caller may ask for", () => {
     const { service, spawned } = harness();
     const terminal = openIn(service);
     spawned[0]?.exit(0);
-    await expect(service.hasForegroundProcess(terminal.id)).rejects.toMatchObject({
-      code: "terminal_not_found",
-    });
+    await expect(service.hasForegroundProcess(terminal.id)).resolves.toBe(false);
   });
 });
 
@@ -747,7 +748,8 @@ describe("hasForegroundProcess", () => {
     const terminal = openIn(service);
     await expect(service.hasForegroundProcess(terminal.id)).resolves.toBe(true);
     spawned[0]?.exit(0);
-    await expect(service.hasForegroundProcess(terminal.id)).rejects.toMatchObject({ code: "terminal_not_found" });
+    // Its record stays until the tab closes, but nothing is running in it.
+    await expect(service.hasForegroundProcess(terminal.id)).resolves.toBe(false);
   });
 
   it("counts a failed query as something running", async () => {

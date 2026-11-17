@@ -475,6 +475,8 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
           resolve();
         };
       });
+      // Whichever way it ended, closing is what removes the tab and the record.
+      finish(entry);
     })();
     closing.set(entry.terminal.id, done);
     return done;
@@ -610,6 +612,7 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
    * @param entry - The terminal.
    */
   const finish = (entry: Running): void => {
+    if (!running.has(entry.terminal.id)) return;
     running.delete(entry.terminal.id);
     owners.delete(entry.terminal.id);
     tell(entry, { type: "terminal_closed", terminalId: entry.terminal.id });
@@ -640,10 +643,12 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
       const ofContainer = [...running.values()].filter((entry) => entry.terminal.containerId === input.containerId);
       // Two budgets: the person's four, and the agents' six, counted apart so an agent cannot
       // use up the tabs someone else is working in.
-      const agents = ofContainer.filter((entry) => entry.terminal.origin === "agent").length;
+      // Only running terminals count: a tab kept open after its program ended is not a slot.
+      const live = ofContainer.filter((entry) => !entry.exited);
+      const agents = live.filter((entry) => entry.terminal.origin === "agent").length;
       if (input.origin === "agent") {
         if (agents >= AGENT_TERMINALS_PER_CONTAINER) throw new CommandError("terminal_limit");
-      } else if (ofContainer.length - agents >= TERMINAL_MAX_PER_CONTAINER) {
+      } else if (live.length - agents >= TERMINAL_MAX_PER_CONTAINER) {
         throw new CommandError("terminal_limit");
       }
       const id = `term_${randomBytes(8).toString("hex")}`;
@@ -709,8 +714,9 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
         emitOutput(entry, complete);
       });
       pty.onExit(({ exitCode }) => {
+        // The record stays, with its screen and exit code, until the tab is closed: an agent's
+        // last read and wait still have an answer after the program ends (SPEC-0009).
         settle(entry, exitCode);
-        finish(entry);
       });
       tell(entry, {
         type: "terminal_opened",
@@ -761,6 +767,7 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
       const entry = running.get(terminalId);
       if (entry === undefined) return;
       if (owners.get(terminalId) !== caller.clientId) throw new CommandError("terminal_not_owner");
+      // An ended terminal's tab still closes; there is nothing to signal.
       if (force !== true && (await this.hasForegroundProcess(terminalId))) {
         throw new CommandError("terminal_has_process");
       }
