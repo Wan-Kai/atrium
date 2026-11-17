@@ -754,6 +754,33 @@ describe("what a window may list after a reload", () => {
   });
 });
 
+describe("the small print", () => {
+  it("cuts a long title to forty characters", () => {
+    const { service, sent } = harness();
+    service.open({ caller: CALLER, containerId: W1, cols: 80, rows: 24, title: "t".repeat(60) });
+    const opened = sent.filter(([, event]) => event.type === "terminal_opened").at(-1);
+    expect(opened?.[1]).toMatchObject({ terminal: { title: "t".repeat(40) } });
+  });
+
+  it("clamps the quiet window at its top", async () => {
+    const { service, clock, spawned } = harness();
+    const terminal = agentOpen(service);
+    const waiting = service.agentWait(SESSION, terminal.id, { quietMs: 999_999, timeoutMs: 20_000 });
+    spawned[0]?.output("x");
+    clock.advance(10_500);
+    await expect(waiting).resolves.toMatchObject({ quiet: true });
+  });
+
+  it("keeps a title that is already short, and a command's own name", () => {
+    const { service, sent } = harness();
+    service.open({ caller: CALLER, containerId: W1, cols: 80, rows: 24, title: "dev", command: "npm run dev" });
+    service.open({ caller: CALLER, containerId: W1, cols: 80, rows: 24, command: "top -b" });
+    const opened = sent.filter(([, event]) => event.type === "terminal_opened");
+    expect(opened.at(-2)?.[1]).toMatchObject({ terminal: { title: "dev" } });
+    expect(opened.at(-1)?.[1]).toMatchObject({ terminal: { title: "top" } });
+  });
+});
+
 describe("closing reaches what the shell started", () => {
   it("signals the shell's descendants, then them again with SIGKILL", async () => {
     const { service, clock, signals, spawned } = harness({ descendants: [4300, 4301] });

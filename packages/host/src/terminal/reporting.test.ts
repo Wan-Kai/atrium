@@ -67,3 +67,25 @@ describe("splitComplete", () => {
     expect(splitComplete(long)).toStrictEqual({ complete: long, rest: "" });
   });
 });
+
+describe("splitComplete at the edges", () => {
+  it("holds a lone ESC until the character after it arrives", () => {
+    expect(splitComplete("text\u001b")).toStrictEqual({ complete: "text", rest: "\u001b" });
+    expect(splitComplete("text\u001b[")).toStrictEqual({ complete: "text", rest: "\u001b[" });
+    expect(splitComplete("\u001b[1m")).toStrictEqual({ complete: "\u001b[1m", rest: "" });
+  });
+
+  it("lets an ESC and one ordinary character through together", () => {
+    expect(splitComplete("\u001bA")).toStrictEqual({ complete: "\u001bA", rest: "" });
+  });
+
+  it("looks only at the last escape, so an earlier finished one does not hold text back", () => {
+    expect(splitComplete("\u001b[0m\u001b[?20")).toStrictEqual({ complete: "\u001b[0m", rest: "\u001b[?20" });
+  });
+
+  it("treats a finished OSC as complete, and holds one that only looks finished", () => {
+    expect(splitComplete("\u001b]0;title\u0007done")).toStrictEqual({ complete: "\u001b]0;title\u0007done", rest: "" });
+    expect(splitComplete("\u001b]0;title\u001b\\")).toStrictEqual({ complete: "\u001b]0;title\u001b\\", rest: "" });
+    expect(splitComplete("\u001b]0;tit\u001b")).toStrictEqual({ complete: "\u001b]0;tit", rest: "\u001b" });
+  });
+});

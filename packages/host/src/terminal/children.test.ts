@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { childPidsOf } from "./children";
+import { childPidsOf, descendantsOf } from "./children";
 
 /** A `ps -axo pid=,ppid=` table with the rows given. */
 function table(rows: ReadonlyArray<readonly [number, number]>): () => Promise<string> {
@@ -8,6 +8,25 @@ function table(rows: ReadonlyArray<readonly [number, number]>): () => Promise<st
 
 /** A table with one shell and no children, and blank lines. */
 const idleTable = async (): Promise<string> => "  1 0\n\n 4242 1 \n";
+
+/** A shell with children, a grandchild and a great-grandchild. */
+const treeTable = table([
+  [4242, 1],
+  [4300, 4242],
+  [4301, 4300],
+  [4302, 4301],
+  [4303, 4242],
+]);
+
+/** A table that claims two pids are each other's parent. */
+const cycleTable = async (): Promise<string> => "4300 4301\n4301 4300\n";
+
+/** A shell with 300 children. */
+const wideTable = async (): Promise<string> =>
+  Array.from({ length: 300 }, (_, index) => `${String(5000 + index)} 4242`).join("\n");
+
+/** A table whose parent column is not a number. */
+const badNumberTable = async (): Promise<string> => "4300 abc\n4301 4242\n";
 
 /** A table whose columns are padded. */
 const spacedTable = async (): Promise<string> => "   4300    4242\n";
@@ -64,5 +83,43 @@ describe("childPidsOf on odd tables", () => {
 
   it("does not confuse a pid that shares a prefix with the parent", async () => {
     await expect(childPidsOf(4242, { table: prefixedTable })).resolves.toStrictEqual([4301]);
+  });
+});
+
+describe("a table with rows that are not pids", () => {
+  it("skips a parent that is not a number", async () => {
+    await expect(childPidsOf(4242, { table: badNumberTable })).resolves.toStrictEqual([4301]);
+    await expect(descendantsOf(4242, { table: badNumberTable })).resolves.toStrictEqual([4301]);
+  });
+});
+
+describe("descendantsOf", () => {
+  it("walks children, grandchildren and deeper, each once", async () => {
+    const found = await descendantsOf(4242, { table: treeTable });
+    expect(found.toSorted((a, b) => a - b)).toStrictEqual([4300, 4301, 4302, 4303]);
+  });
+
+  it("comes back empty for a shell that started nothing", async () => {
+    await expect(descendantsOf(4242, { table: idleTable })).resolves.toStrictEqual([]);
+  });
+
+  it("does not loop on a table that names a cycle", async () => {
+    // A table that claims a cycle must end: each pid is added once, and the walk stops.
+    const found = await descendantsOf(4300, { table: cycleTable });
+    expect(found.toSorted((a, b) => a - b)).toStrictEqual([4300, 4301]);
+  });
+
+  it("stops at its cap instead of walking a huge tree", async () => {
+    // 300 children of the shell: at most the cap comes back.
+    const found = await descendantsOf(4242, { table: wideTable });
+    expect(found.length).toBeLessThanOrEqual(200);
+  });
+
+  it("ignores rows that are not two numbers", async () => {
+    await expect(descendantsOf(4242, { table: malformedTable })).resolves.toStrictEqual([]);
+  });
+
+  it("reports a failed table instead of guessing", async () => {
+    await expect(descendantsOf(4242, { table: failedTable })).rejects.toThrow("ps: not found");
   });
 });

@@ -3133,7 +3133,9 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 
 **破坏检查**：`packages/host/test/terminal.break-check.json` 5/5 CAUGHT（静默判据、`until` 语义、agent 终端可被窗口 attach、越权守卫、括号粘贴）。
 
-**变异**（`pnpm test:mutation terminal`，2026-11-16）：总分 **77.34%**，未达 80% 阈值。分组结果：`reporting.ts` 85.00、`history.ts` 82.61、`screen.ts` 82.35、`service.ts` 77.78、`children.ts` 46.88。`pty.ts` 已从变异列表中排除并写明理由（node-pty 的薄适配层，真实覆盖来自真起 PTY 的测试与装好的 App 端到端；存活的是 fs 探测和机械委托）。两处拖累：`children.ts` 一半是 `ps` 表解析、另一半是 `execFile` 包装；`service.ts` 存活的多是可选参数与钳位分支。未做逐条存活分析。
+**变异**（`pnpm test:mutation terminal`，2026-11-16 复查后）：总分 **79.61%**，仍差 0.4 个点。`children` 64.29、`history` 83.95、`reporting` 90.91、`screen` 82.35、`service` 78.84；`pty.ts` 仍在变异范围外（薄适配层）。剩余存活集中在 `children` 的表解析与 `service` 的可选参数/钳位分支，未逐条分析。
+
+**早前记录（2026-11-16 首次）** 总分 **77.34%**，未达 80% 阈值。分组结果：`reporting.ts` 85.00、`history.ts` 82.61、`screen.ts` 82.35、`service.ts` 77.78、`children.ts` 46.88。`pty.ts` 已从变异列表中排除并写明理由（node-pty 的薄适配层，真实覆盖来自真起 PTY 的测试与装好的 App 端到端；存活的是 fs 探测和机械委托）。两处拖累：`children.ts` 一半是 `ps` 表解析、另一半是 `execFile` 包装；`service.ts` 存活的多是可选参数与钳位分支。未做逐条存活分析。
 
 **泄漏**：`terminal.leak.test.ts`，50 轮开/打字/关后 `timer` 计数回到 0、终端列表为空；定时器已改为走 `trackedTimeout` 计数（1/1 通过）。
 
