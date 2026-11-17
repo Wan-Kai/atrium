@@ -494,6 +494,16 @@ describe("what an agent may do", () => {
     expect(answered).toBe(true);
   });
 
+  it("sees a bracketed-paste change the PTY split across two reads", () => {
+    const { service, spawned } = harness();
+    const terminal = agentOpen(service);
+    spawned[0]?.output("\u001b[?20");
+    spawned[0]?.output("04h");
+    const typing = service.agentType(SESSION, terminal.id, "one\ntwo");
+    expect(spawned[0]?.calls.at(-1)).toBe("write:\u001b[200~one\ntwo\u001b[201~");
+    void typing;
+  });
+
   it("presses named keys, and refuses anything outside the table", async () => {
     const { service, clock, spawned } = harness();
     const terminal = agentOpen(service);

@@ -13,7 +13,7 @@ import { type Clock, trackedTimeout } from "../platform/clock";
 import type { Logger } from "../platform/logger";
 import type { ResourceTracker } from "../platform/resources";
 import { createHistory, type TerminalHistory } from "./history";
-import { type Reported, pasteAfter, reportedState } from "./reporting";
+import { type Reported, pasteAfter, reportedState, splitComplete } from "./reporting";
 import { type ScreenReading, createScreen } from "./screen";
 import type { PtyProcess, PtySpawn } from "./pty";
 
@@ -238,6 +238,8 @@ interface Running {
   cancelFlush: (() => void) | null;
   /** Bytes dropped since the last flush, reported once on the screen. */
   dropped: number;
+  /** The tail of an escape sequence the PTY split across reads (SPEC-0009, "历史与重放"). */
+  acc: string;
   /** Stops the `SIGKILL` escalation of a close under way. */
   cancelKill: (() => void) | null;
   /** Resolves the `close` that is waiting for this terminal, when it is waiting. */
@@ -685,6 +687,7 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
         queued: 0,
         cancelFlush: null,
         dropped: 0,
+        acc: "",
         cancelKill: null,
         resolveClose: null,
         exited: false,
@@ -692,13 +695,17 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
       running.set(id, entry);
       owners.set(id, input.caller.clientId);
       pty.onData((data) => {
-        entry.history.push(data);
-        entry.screen.write(data);
-        entry.pasteEnabled = pasteAfter(data, entry.pasteEnabled);
-        entry.reported = reportedState(data) ?? entry.reported;
+        // Join what the last read held back: a mode change or a query can be split anywhere.
+        const { complete, rest } = splitComplete(entry.acc + data);
+        entry.acc = rest;
+        if (complete === "") return;
+        entry.history.push(complete);
+        entry.screen.write(complete);
+        entry.pasteEnabled = pasteAfter(complete, entry.pasteEnabled);
+        entry.reported = reportedState(complete) ?? entry.reported;
         entry.lastOutputAt = options.clock.now();
         entry.outputs += 1;
-        emitOutput(entry, data);
+        emitOutput(entry, complete);
       });
       pty.onExit(({ exitCode }) => {
         settle(entry, exitCode);
