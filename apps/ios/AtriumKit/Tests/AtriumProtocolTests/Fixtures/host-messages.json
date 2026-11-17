@@ -1,7 +1,7 @@
 [
   {
     "type": "welcome",
-    "protocolVersion": 40,
+    "protocolVersion": 42,
     "hostVersion": "0.0.0",
     "hostInstanceId": "h1",
     "heartbeatMs": 15000,
@@ -20,6 +20,35 @@
     "type": "response",
     "requestId": "r1",
     "ok": true
+  },
+  {
+    "type": "terminal_opened",
+    "terminal": {
+      "id": "term_0123456789abcdef",
+      "containerId": "cht_0f3c2a1e-5b6d-4c7e-8f90-123456789abc",
+      "title": "zsh",
+      "cwd": "/Users/test",
+      "cols": 112,
+      "rows": 51,
+      "state": "running",
+      "exitCode": null,
+      "origin": "user",
+      "sessionId": null
+    }
+  },
+  {
+    "type": "terminal_output",
+    "terminalId": "term_0123456789abcdef",
+    "data": "$ ls\r\n"
+  },
+  {
+    "type": "terminal_exited",
+    "terminalId": "term_0123456789abcdef",
+    "exitCode": 0
+  },
+  {
+    "type": "terminal_closed",
+    "terminalId": "term_0123456789abcdef"
   },
   {
     "type": "response",
@@ -12232,6 +12261,70 @@
     "ok": false,
     "error": {
       "code": "worktree_create_failed"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "terminal_not_found"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "terminal_not_owner"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "terminal_limit"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "terminal_cwd_invalid"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "terminal_spawn_failed"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "terminal_has_process"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "terminal_write_too_large"
+    }
+  },
+  {
+    "type": "response",
+    "requestId": "r1",
+    "ok": false,
+    "error": {
+      "code": "terminal_write_too_fast"
     }
   },
   {

@@ -7,7 +7,7 @@ import { SNAPSHOT_TURNS, SnapshotStream } from "./events";
 import { InteractionAnswer } from "./control";
 import { QuestionReply } from "./question";
 import { Verdict } from "./reviews";
-import { ChatId, ContainerId, DirectionId, ProjectId, SessionId, WorkspaceId } from "./ids";
+import { ChatId, ContainerId, DirectionId, ProjectId, SessionId, TerminalId, WorkspaceId } from "./ids";
 import { Appearance, BranchName, ProxySetting, StatusBarChoices, TranslationLanguage } from "./listing";
 import { StudyKind, StudyRef } from "./study";
 import { CatalogModel, MODEL_LIMITS, ModelRef, ThinkingLevel } from "./models";
@@ -17,6 +17,7 @@ import { PI_CONFIG_MAX_BYTES, PiConfigFile, PiConfigName, PiConfigRevision } fro
 import { DeviceId, PairingId, RelayLine, RemoteState } from "./remote";
 import { ScheduleId, ScheduleSummary } from "./schedules";
 import { ArchiveAnswer, HumanAnswer, TaskId, TaskNodeId, TaskSummary, TaskView } from "./tasks";
+import { Terminal, TerminalCols, TerminalRows, TERMINAL_WRITE_MAX } from "./terminal";
 import { VISUAL_FILE_MAX, VISUAL_MESSAGE_MAX, VisualPath, namesOneOwner } from "./visuals";
 
 /** A client-chosen id that ties a response to its command; unique within a connection. */
@@ -1324,6 +1325,74 @@ export const OpenTaskSessionCommand = z.strictObject({
 });
 export type OpenTaskSessionCommand = z.infer<typeof OpenTaskSessionCommand>;
 
+/**
+ * Lists the terminals this client may still show.
+ *
+ * @remarks
+ * A window that reloaded or reconnected has lost its tabs; the PTYs are still running, and this is
+ * how it finds them again (SPEC-0009, "生命周期"). It answers the client's own terminals and the
+ * ones agents opened, not another window's.
+ */
+export const TerminalListCommand = z.strictObject({
+  type: z.literal("terminal_list"),
+  ...commandFields,
+});
+export type TerminalListCommand = z.infer<typeof TerminalListCommand>;
+
+/** Opens a terminal in a container; the host picks the directory from the container (SPEC-0009). */
+export const TerminalOpenCommand = z.strictObject({
+  type: z.literal("terminal_open"),
+  ...commandFields,
+  containerId: ContainerId,
+  cols: TerminalCols,
+  rows: TerminalRows,
+});
+export type TerminalOpenCommand = z.infer<typeof TerminalOpenCommand>;
+
+/**
+ * Attaches this connection to a terminal and returns what it printed so far.
+ *
+ * @remarks
+ * Attaching subscribes; it does not take the terminal over. The host only lets one connection
+ * attach today, which is a rule in the host rather than a shape of this command, so a phone can be
+ * added later without changing the protocol (SPEC-0009, "非目标").
+ */
+export const TerminalAttachCommand = z.strictObject({
+  type: z.literal("terminal_attach"),
+  ...commandFields,
+  terminalId: TerminalId,
+});
+export type TerminalAttachCommand = z.infer<typeof TerminalAttachCommand>;
+
+/** Sends bytes to a terminal as if typed; the PTY decides what they mean. */
+export const TerminalWriteCommand = z.strictObject({
+  type: z.literal("terminal_write"),
+  ...commandFields,
+  terminalId: TerminalId,
+  data: z.string().max(TERMINAL_WRITE_MAX),
+});
+export type TerminalWriteCommand = z.infer<typeof TerminalWriteCommand>;
+
+/** Tells the terminal its new size, which the shell forwards to the program as `SIGWINCH`. */
+export const TerminalResizeCommand = z.strictObject({
+  type: z.literal("terminal_resize"),
+  ...commandFields,
+  terminalId: TerminalId,
+  cols: TerminalCols,
+  rows: TerminalRows,
+});
+export type TerminalResizeCommand = z.infer<typeof TerminalResizeCommand>;
+
+/** Closes a terminal: the host ends its process group and releases the PTY (SPEC-0009). */
+export const TerminalCloseCommand = z.strictObject({
+  type: z.literal("terminal_close"),
+  ...commandFields,
+  terminalId: TerminalId,
+  /** Asked again after the user agreed to end a program that is still running. */
+  force: z.boolean().optional(),
+});
+export type TerminalCloseCommand = z.infer<typeof TerminalCloseCommand>;
+
 /** Every command a client may send after the handshake. */
 export const Command = z.discriminatedUnion("type", [
   PingCommand,
@@ -1449,6 +1518,12 @@ export const Command = z.discriminatedUnion("type", [
   RunScheduleNowCommand,
   DeleteScheduleCommand,
   EditScheduleCommand,
+  TerminalListCommand,
+  TerminalOpenCommand,
+  TerminalAttachCommand,
+  TerminalWriteCommand,
+  TerminalResizeCommand,
+  TerminalCloseCommand,
 ]);
 export type Command = z.infer<typeof Command>;
 export type CommandType = Command["type"];
@@ -1639,5 +1714,12 @@ export const CommandResult = {
   run_schedule_now: z.strictObject({ taskId: TaskId }),
   delete_schedule: z.strictObject({}),
   edit_schedule: z.strictObject({ taskId: TaskId }),
+  terminal_list: z.strictObject({ terminals: z.array(Terminal) }),
+  terminal_open: z.strictObject({ terminal: Terminal }),
+  /** `history` is what the host still holds, up to the caps; it is replayed before new output. */
+  terminal_attach: z.strictObject({ terminal: Terminal, history: z.string() }),
+  terminal_write: z.strictObject({}),
+  terminal_resize: z.strictObject({}),
+  terminal_close: z.strictObject({}),
 } as const satisfies Record<CommandType, z.ZodType>;
 export type CommandResult<T extends CommandType> = z.infer<(typeof CommandResult)[T]>;

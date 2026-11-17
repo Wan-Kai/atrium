@@ -499,6 +499,8 @@ export function createSessionManager(options: {
   };
   /** Answers the study tools of directions' sessions (SPEC-0008, "ML2 定的细节"); without it they are refused. */
   readonly study?: { readonly call: NonNullable<AgentHost["study"]> };
+  /** Terminals an agent may drive (SPEC-0009); the host's service, reached through main. */
+  readonly terminals?: AgentHost["terminals"];
   readonly onChange: () => void;
   readonly clock: Clock;
   readonly resources: ResourceTracker;
@@ -684,6 +686,7 @@ export function createSessionManager(options: {
   const studyTools = options.study;
   const relay = createAgentRelay({
     ...(studyTools === undefined ? {} : { study: (sessionId, call) => studyTools.call(sessionId, call) }),
+    ...(options.terminals === undefined ? {} : { terminals: options.terminals }),
     catalog: options.catalog,
     clock: timers,
     newId: options.newId,

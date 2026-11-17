@@ -17,6 +17,10 @@ import type {
   TasksUpdatedEvent,
   ResumePoint,
   SnapshotBudget,
+  TerminalClosedEvent,
+  TerminalExitedEvent,
+  TerminalOpenedEvent,
+  TerminalOutputEvent,
   VisualChangedEvent,
 } from "@atrium/protocol";
 import type { ResourceTracker } from "../platform/resources";
@@ -38,6 +42,10 @@ type SinkEvent =
   | TaskUpdatedEvent
   | SchedulesUpdatedEvent
   | VisualChangedEvent
+  | TerminalOpenedEvent
+  | TerminalOutputEvent
+  | TerminalExitedEvent
+  | TerminalClosedEvent
   | BroadcastEvent;
 
 /** What goes to every connection, whatever it watches. */
@@ -311,6 +319,31 @@ export class SubscriptionRegistry {
    * @remarks
    * For what every window shows whatever it watches, as a login or an install job under way
    * (SPEC-0001, "首次启动 · 接口").
+   *
+   * @sideEffects Calls every connection's sink.
+   * @param event - The event.
+   */
+  /**
+   * Delivers an event to every local connection.
+   *
+   * @remarks
+   * A terminal an agent opened belongs to no connection: whichever window shows the container
+   * should see its tab, and a phone must not (SPEC-0009, "非目标").
+   *
+   * @sideEffects Calls every local connection's sink.
+   * @param event - The event.
+   */
+  broadcastToLocal(event: SinkEvent): void {
+    for (const [connectionId, sink] of this.#sinks) {
+      if (!sink.remote) this.sendTo(connectionId, event);
+    }
+  }
+
+  /**
+   * Delivers an event to every connection, phones included.
+   *
+   * @remarks
+   * For news every window shows, such as a sign-in finishing.
    *
    * @sideEffects Calls every connection's sink.
    * @param event - The event.

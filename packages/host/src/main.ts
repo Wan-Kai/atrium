@@ -8,7 +8,7 @@ import {
   runOneShot,
   sessionsLocation,
 } from "@atrium/pi";
-import { CommandError, isDirectionId } from "@atrium/protocol";
+import { CommandError, isDirectionId, isWorkspaceId } from "@atrium/protocol";
 import { randomBytes, randomUUID } from "node:crypto";
 import { homedir, hostname, uptime } from "node:os";
 import { join } from "node:path";
@@ -48,6 +48,9 @@ import { REMOTE_FILE } from "./remote/devices";
 import { loadIndexFile } from "./store/index-file";
 import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
+import { childPidsOf, descendantsOf } from "./terminal/children";
+import { spawnPty, terminalEnv } from "./terminal/pty";
+import { type TerminalService, createTerminalService } from "./terminal/service";
 import {
   DIRECTION_VISUALS,
   type VisualsDir,
@@ -450,6 +453,32 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     files: progressFiles,
     logger,
   });
+  /**
+   * The terminal service, reached by the relay after both exist.
+   *
+   * @remarks
+   * The sessions are built first and the terminals need the workspaces and directions, so the
+   * relay is handed methods that look the service up when they run, not when they are made.
+   */
+  const terminalBridge: { current: TerminalService | null } = { current: null };
+
+  /**
+   * The terminal service, which must exist by the time an agent calls a terminal tool.
+   *
+   * @remarks
+   * The bridge is filled once the workspaces and directions are known, so a call before then is a
+   * bug in start-up order rather than something to retry.
+   *
+   * @sideEffects none
+   * @returns The service.
+   * @throws When a call arrives before the host finished starting.
+   */
+  const requireTerminals = (): TerminalService => {
+    const service = terminalBridge.current;
+    if (service === null) throw new Error("the terminal service is not up yet");
+    return service;
+  };
+
   const sessions = createSessionManager({
     reviews: reviewHub,
     study: studyTools,
@@ -463,6 +492,30 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     catalog,
     layouts,
     chats: chatRecords,
+    terminals: {
+      open: async (sessionId, command, title) => {
+        const service = requireTerminals();
+        const containerId = catalog.find(sessionId)?.containerId;
+        if (containerId === undefined) throw new Error("the session has no container");
+        const terminal = service.open({
+          caller: { connectionId: "", clientId: sessionId },
+          containerId,
+          cols: 100,
+          rows: 30,
+          origin: "agent",
+          sessionId,
+          command,
+          ...(title === undefined ? {} : { title }),
+        });
+        return { terminalId: terminal.id, title: terminal.title, directory: terminal.cwd };
+      },
+      read: (sessionId, terminalId, lines) => requireTerminals().agentRead(sessionId, terminalId, lines),
+      type: (sessionId, terminalId, text, submit, signal) =>
+        requireTerminals().agentType(sessionId, terminalId, text, submit, signal),
+      key: (sessionId, terminalId, key, signal) => requireTerminals().agentKey(sessionId, terminalId, key, signal),
+      wait: (sessionId, terminalId, waitOptions) => requireTerminals().agentWait(sessionId, terminalId, waitOptions),
+      close: (sessionId, terminalId) => requireTerminals().agentClose(sessionId, terminalId),
+    },
     // An archived direction takes no new session (SPEC-0008).
     directions: {
       dirOf: (directionId) => {
@@ -591,6 +644,26 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     resources,
     logger,
   });
+  // Built-in terminals (SPEC-0009): the host owns the PTY, a client attaches to it.
+  const terminals = createTerminalService({
+    shell: process.env["SHELL"] ?? "/bin/zsh",
+    dirOf: (containerId) =>
+      isWorkspaceId(containerId) ? workspaces.dirOf(containerId) : directions.find(containerId)?.dir,
+    home: homedir(),
+    env: terminalEnv(process.env),
+    spawn: spawnPty,
+    send: (connectionId, event) => subscriptions.sendTo(connectionId, event),
+    broadcast: (event) => subscriptions.broadcastToLocal(event),
+    clock,
+    resources,
+    logger,
+    childrenOf: (pid) => childPidsOf(pid),
+    descendantsOf: (pid) => descendantsOf(pid),
+    signal: (pid, name) => {
+      process.kill(pid, name);
+    },
+  });
+  terminalBridge.current = terminals;
   const translations = createReplyTranslations({
     source: (sessionId, turnId) => sessions.replyTranslationSource(sessionId, turnId),
     language: () => preferences.read().translationLanguage,
@@ -1000,6 +1073,7 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
         logger,
       }),
       visuals,
+      terminals,
       logger,
       tracer: tracing.tracer,
       clock,
@@ -1176,6 +1250,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await toolbox.close();
     await remote.close();
     await server.close();
+    // Terminals last: their tabs are gone with the server, and their processes get the grace period.
+    await terminals.closeAll();
     await translations.close();
     // Naming may be waiting on a shared cold model query: abort both before awaiting either.
     const namingClosed = namer.close();

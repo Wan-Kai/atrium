@@ -242,6 +242,19 @@ export const MUTATION_GROUPS = {
     tests: ["packages/ui"],
     skip: [],
   },
+  // The built-in terminal (SPEC-0009): the PTY, its history and screen, the agent's limits.
+  terminal: {
+    // pty.ts is left out: it is a thin adapter over node-pty, and what matters (a real shell runs)
+    // is covered by the real-PTY test and the packaged app's end-to-end test, neither of which a
+    // mutant of an fs probe or a delegation line can fail (2026-11-16).
+    mutate: [
+      "packages/host/src/terminal/*.ts",
+      "!packages/host/src/terminal/*.test.ts",
+      "!packages/host/src/terminal/pty.ts",
+    ],
+    tests: ["packages/host/src/terminal", "packages/host/src/terminal.host.test.ts"],
+    skip: [],
+  },
   // Inline visuals (SPEC-0007): the host's files, pages and messages, the desktop's sandbox rules, the extension's prompt.
   visuals: {
     mutate: [

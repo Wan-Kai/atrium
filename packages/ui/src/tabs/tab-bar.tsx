@@ -1,5 +1,5 @@
 import { type AtriumClient, isDirectionId, isWorkspaceId } from "@atrium/client";
-import type { ContainerId, SessionSummary } from "@atrium/protocol";
+import type { ContainerId, SessionSummary, Terminal } from "@atrium/protocol";
 import {
   ArrowBendDownRight,
   CaretDown,
@@ -8,6 +8,7 @@ import {
   Mortarboard,
   Plus,
   SidebarRight,
+  Terminal as TerminalIcon,
   X,
 } from "../design/icons";
 import { useState } from "react";
@@ -114,6 +115,9 @@ export function TabBar({
   client,
   containerId,
   onNew,
+  onNewTerminal,
+  onCloseTerminal,
+  pending,
   panes,
   views,
   home,
@@ -121,12 +125,19 @@ export function TabBar({
   readonly client: AtriumClient;
   readonly containerId: ContainerId;
   readonly onNew: () => void;
+  /** Opens a terminal in this container; absent where a terminal makes no sense (a direction). */
+  readonly onNewTerminal?: (() => void) | undefined;
+  /** Ends a terminal tab's terminal, after whatever asking it needs, and closes the tab. */
+  readonly onCloseTerminal?: ((terminalId: string) => void) | undefined;
+  /** Something is being created: a terminal or a session, shown as a waiting tab meanwhile. */
+  readonly pending?: "session" | "terminal" | null | undefined;
   readonly panes: StoreApi<Panes>;
   readonly views: StoreApi<WorkspaceViews>;
   readonly home?: HomeTab | undefined;
 }) {
   const folded = useStore(panes, (state) => state.sidebarCollapsed);
   const view = useStore(views, (state) => viewOf(state, containerId));
+  const terminals = useStore(client.terminals, (state) => state.terminals);
   const mode = useDiffMode(client, views, isWorkspaceId(containerId) ? containerId : null);
   const homeShown = home?.shown ?? false;
   const index = useStore(client.index);
@@ -215,11 +226,24 @@ export function TabBar({
             <ViewerTabButton
               key={key}
               tab={tab}
+              terminal={tab.kind === "terminal" ? terminals.find((one) => one.id === tab.id) : undefined}
               selected={key === view.active}
-              described={tab.kind === "file" ? tab.path : mode === "base" ? "已提交的改动" : "未提交的改动"}
+              described={
+                tab.kind === "file"
+                  ? tab.path
+                  : tab.kind === "terminal"
+                    ? "终端"
+                    : mode === "base"
+                      ? "已提交的改动"
+                      : "未提交的改动"
+              }
               onSelect={() => showViewer(views, containerId, key)}
               onPin={() => pinViewer(views, containerId, key)}
               onClose={() => {
+                if (tab.kind === "terminal") {
+                  onCloseTerminal?.(tab.id);
+                  return;
+                }
                 const session = closeViewer(views, containerId, key, tabs.open);
                 if (session !== null) run(() => client.openSession(session));
               }}
@@ -230,16 +254,7 @@ export function TabBar({
       <span className="flex shrink-0 items-center gap-1 [-webkit-app-region:no-drag]">
         {home?.archived === true ? null : (
           <>
-            <button
-              type="button"
-              aria-label="新建会话（⌘T）"
-              title="新建会话（⌘T）"
-              onClick={onNew}
-              className="inline-flex size-7 items-center justify-center rounded-[var(--r)] text-[var(--text-muted)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]"
-            >
-              <Plus size={15} />
-            </button>
-            <MenuButton label="新建" align="start" compact content={<CaretDown size={10} />}>
+            <MenuButton label="新建" align="start" compact content={<Plus size={15} />}>
               {(close) => (
                 <>
                   <button
@@ -254,6 +269,19 @@ export function TabBar({
                     <Plus size={13} />
                     <span className="flex-1">新会话</span>
                     <span className="text-[length:var(--fs-xs)] text-[var(--text-dim)]">⌘T</span>
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={MENU_ITEM}
+                    onClick={() => {
+                      close();
+                      onNewTerminal?.();
+                    }}
+                  >
+                    <TerminalIcon size={13} />
+                    <span className="flex-1">新终端</span>
+                    <span className="text-[length:var(--fs-xs)] text-[var(--text-dim)]">在当前目录</span>
                   </button>
                   <button
                     type="button"
@@ -278,6 +306,15 @@ export function TabBar({
               )}
             </MenuButton>
           </>
+        )}
+        {pending === null || pending === undefined ? null : (
+          <div
+            aria-busy="true"
+            className="flex h-[30px] shrink-0 items-center gap-1.5 rounded-[var(--r)] px-2.5 text-[length:var(--fs-meta)] text-[var(--text-dim)]"
+          >
+            <span className="size-1.5 animate-pulse rounded-full bg-[var(--text-dim)]" />
+            <span className="animate-pulse">{pending === "terminal" ? "正在开终端…" : "正在建会话…"}</span>
+          </div>
         )}
         <MenuButton
           label="历史"
@@ -410,6 +447,7 @@ function PanelToggle({
  */
 function ViewerTabButton({
   tab,
+  terminal,
   selected,
   described,
   onSelect,
@@ -417,16 +455,21 @@ function ViewerTabButton({
   onClose,
 }: {
   readonly tab: ViewerTab;
+  /** The terminal's record, for its name and who opened it. */
+  readonly terminal?: Terminal | undefined;
   readonly selected: boolean;
   readonly described: string;
   readonly onSelect: () => void;
   readonly onPin: () => void;
   readonly onClose: () => void;
 }) {
-  const title = tab.kind === "file" ? splitPath(tab.path).name : "改动";
+  const title =
+    tab.kind === "file" ? splitPath(tab.path).name : tab.kind === "terminal" ? (terminal?.title ?? "终端") : "改动";
   return (
     <div
       role="tab"
+      // "终端" stays in the name so a test or a keystroke can find it whatever the title is.
+      aria-label={tab.kind === "terminal" ? `终端 ${title}` : undefined}
       tabIndex={selected ? 0 : -1}
       aria-selected={selected}
       title={described}
@@ -439,10 +482,17 @@ function ViewerTabButton({
     >
       {tab.kind === "file" ? (
         <FileIcon path={tab.path} size={14} />
+      ) : tab.kind === "terminal" ? (
+        <TerminalIcon size={14} className="flex-none text-[var(--text-muted)]" />
       ) : (
         <FileDiff size={14} className="flex-none text-[var(--text-muted)]" />
       )}
       <span className={`min-w-0 flex-1 truncate ${tab.kind === "file" && tab.preview ? "italic" : ""}`}>{title}</span>
+      {tab.kind === "terminal" && terminal?.origin === "agent" ? (
+        <span className="shrink-0 rounded-[var(--r-pill)] bg-[color-mix(in_srgb,var(--tint)_12%,transparent)] px-1 text-[length:var(--fs-xs)] text-[var(--tint)]">
+          agent
+        </span>
+      ) : null}
       <button
         type="button"
         aria-label={`关闭 ${title}`}

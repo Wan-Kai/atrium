@@ -41,8 +41,8 @@ const pairing = {
 };
 
 describe("the coordinated remote contract", () => {
-  it("uses version 40, which adds the finished attention (SPEC-0005, 协议改动 8) after a direction's files and visuals (SPEC-0008, ML4)", () => {
-    expect(PROTOCOL_VERSION).toBe(40);
+  it("uses version 42, which lets a reloaded window find its terminals again (SPEC-0009)", () => {
+    expect(PROTOCOL_VERSION).toBe(42);
   });
 
   it.each([

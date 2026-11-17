@@ -599,6 +599,14 @@ describe("Atrium's extension: child conversations", () => {
 
     expectTypeOf<ExtensionAPI>().toExtend<AgentApi>();
     expect([...tools.keys()]).toStrictEqual([
+      // The terminal tools come first: a session that is not a sub-conversation gets them
+      // (SPEC-0009), and none of them is anything a sub-agent has.
+      "terminal_open",
+      "terminal_read",
+      "terminal_type",
+      "terminal_key",
+      "terminal_wait",
+      "terminal_close",
       "agent_spawn",
       "agent_send",
       "agent_reply",
@@ -623,8 +631,24 @@ describe("Atrium's extension: child conversations", () => {
 
   it("declares each tool to the model with the parameters and limits SPEC-0002 gives it", () => {
     const { tools } = stand();
+    // The terminal tools are covered by their own test below.
+    const agentTools = new Map([...tools].filter(([name]) => !name.startsWith("terminal_")));
 
-    expect(declarations(tools)).toStrictEqual(DECLARED);
+    expect(declarations(agentTools)).toStrictEqual(DECLARED);
+  });
+
+  it("gives a sub-conversation no terminal tools, and tells its session the two rules", () => {
+    const child = stand({ flag: encodeArgument({ v: 1, child: true, role: "explore", depth: 1, guard: "extension" }) });
+    expect([...child.tools.keys()].filter((name) => name.startsWith("terminal_"))).toStrictEqual([]);
+
+    const main = stand();
+    const open = main.tools.get("terminal_open");
+    // Quiet is not finished, and a trust prompt is the user's to answer (SPEC-0009, "实测").
+    expect(open?.description).toContain("Quiet is not finished");
+    expect(open?.description).toContain("do not answer it: stop and tell the user");
+    // Keys are named, never escape sequences: a model that wrote the wrong bytes would see
+    // "nothing happened" instead of an error (SPEC-0009, "为什么不给 agent 一个裸的写接口").
+    expect(main.tools.get("terminal_key")?.description).toContain("named key");
   });
 
   it("writes a note into the session as an atrium-agent custom message, without starting a run", async () => {

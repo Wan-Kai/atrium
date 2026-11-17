@@ -3118,3 +3118,27 @@ testing.md"已知不稳的测试"表里的项逐个复现、找根因、修掉�
 | 方向里还没有会话记下模型（刚建、讨论还没写过）时用上次选的 | 同上 "starts a direction's first session on the model chosen last, no session of it having recorded one" |
 
 验证（2026-11-11，未合并）：`pnpm check` 通过；`session-manager.test.ts` 233/233、`study.host.test.ts` 11/11、宿主项目 361/361；单元项目 6212/6212（第二轮全过；第一轮 `packages/host/src/tasks/conversation.test.ts` 有一条 git 场景失败，重跑没再出现，和这次改动无关）。没跑 UI、e2e、泄漏、pi 契约和变异（`session-manager.ts` 不在变异分组里，见 `mutation-groups.mjs`）。
+
+## 内置终端（SPEC-0009，2026-11-16，待验收）
+
+分支 `atrium/research-terminal-tool`（worktree `research-terminal-tool`）。宿主、协议、界面、agent 工具四层。
+
+**宿主与服务**（`packages/host/src/terminal/`，50 条）：目录按容器解析（工作区/方向/对话）、环境基线（`terminalEnv` 剔 `ATRIUM_*`/`PI_*`，不传 `PATH`）、历史双上限与淘汰不切码点、剥掉查询序列、真实 PTY 起 shell 并回显、`attach` 快照与所有权（人的终端他人不可写）、agent 只碰自己开的、4 KiB 与 20 次/秒限速、括号粘贴开关与 `submit`、方向键不等而提交键等、读屏去掉转义、OSC 7501 自报状态、`until: "exited"` 不被静默打断、没输出时不算安静、写操作返回 `settled`、关闭的 TERM→KILL、前台进程查询失败按"有"处理、每人 4 / agent 6 两本账。
+
+**协议与客户端**：协议 41 的全套往返夹具与 Swift 投影；`AtriumClient` 的终端 store、五个方法、输出订阅、四个事件。
+
+**界面**：终端作为查看标签（按容器、仅本窗口）、`TerminalPane`（xterm、粘贴/复制/清屏、尺寸跟随、结束与重新开始）、`+` 菜单、新建时等待标签、agent 终端的标签自动出现。workbench / conversation 界面用例 108 条通过；完整 UI 套件未跑。
+
+**端到端**：`apps/desktop/e2e/package.spec.ts` 的 `@package` 三条——包里有 `node-pty` 且 helper 可执行、装好的 App 能启动、**装好的 App 里开终端跑 `echo packaged-ok` 并看到输出**。
+
+**破坏检查**：`packages/host/test/terminal.break-check.json` 5/5 CAUGHT（静默判据、`until` 语义、agent 终端可被窗口 attach、越权守卫、括号粘贴）。
+
+**变异**（`pnpm test:mutation terminal`，2026-11-16 复查后）：总分 **79.61%**，差 0.4 个点，**用户 2026-11-16 决定接受并记录**。`children` 64.29、`history` 83.95、`reporting` 90.91、`screen` 82.35、`service` 78.84；`pty.ts` 仍在变异范围外（薄适配层）。剩余存活集中在 `children` 的表解析与 `service` 的可选参数/钳位分支，未逐条分析。
+
+**早前记录（2026-11-16 首次）** 总分 **77.34%**，未达 80% 阈值。分组结果：`reporting.ts` 85.00、`history.ts` 82.61、`screen.ts` 82.35、`service.ts` 77.78、`children.ts` 46.88。`pty.ts` 已从变异列表中排除并写明理由（node-pty 的薄适配层，真实覆盖来自真起 PTY 的测试与装好的 App 端到端；存活的是 fs 探测和机械委托）。两处拖累：`children.ts` 一半是 `ps` 表解析、另一半是 `execFile` 包装；`service.ts` 存活的多是可选参数与钳位分支。未做逐条存活分析。
+
+**泄漏**：`terminal.leak.test.ts`，50 轮开/打字/关后 `timer` 计数回到 0、终端列表为空；定时器已改为走 `trackedTimeout` 计数（1/1 通过）。
+
+**未跑**：完整 UI 套件、宿主全量（362/363，`reply-translation` 是既有失败）。
+
+**手动**：装好的 App 里用 `mc --code` 验过中文输入、多行、Esc/Ctrl-C、信任提示停留、关闭确认；agent 驱动的完整链路（开 → 读屏 → 按键 → 等 → 关）由日志核对过。

@@ -16,6 +16,7 @@ import {
   type InstallUpdatedEvent,
   type InteractionAnswer,
   type QuestionReply,
+  type TerminalId,
   type Verdict,
   type LoginMethod,
   type LoginUpdatedEvent,
@@ -50,6 +51,7 @@ import {
 import { type ChangesView, type DiffView, diffViewOf } from "./changes-view";
 import { type ModelListView, UNASKED_MODELS } from "./model-list";
 import { type RemoteView, UNWATCHED_REMOTE } from "./remote-view";
+import { NO_TERMINALS, type TerminalsView, withExit, withTerminal } from "./terminal-view";
 import { type SetupView, UNASKED_SETUP } from "./setup-view";
 import {
   LOADING_TASK,
@@ -525,6 +527,48 @@ export interface AtriumClient {
   readonly diff: StoreApi<DiffView>;
   /** Opens the changes panel on a target, or closes it with `null`, on this connection and every later one. */
   watchDiff(target: DiffTarget | null): Promise<void>;
+  /** Terminals open on this connection, for the tab bar (SPEC-0009). */
+  readonly terminals: StoreApi<TerminalsView>;
+  /** Opens a terminal in a container; the host picks the directory from the container. */
+  openTerminal(containerId: ContainerId, cols: number, rows: number): Promise<CommandResult<"terminal_open">>;
+  /** The running terminals this window may still show, after a reload or a reconnect. */
+  listTerminals(): Promise<CommandResult<"terminal_list">>;
+  /**
+   * Rebuilds the terminal list after a reload.
+   *
+   * @remarks
+   * Tabs live in the window, so a reload loses them while the PTYs keep running; asking the host
+   * once gives them back (SPEC-0009, "生命周期"). Every connection also bumps the generation, so a
+   * pane attaches again on the new socket.
+   */
+  restoreTerminals(): Promise<void>;
+  /** Attaches this connection to a terminal and returns what it printed so far. */
+  attachTerminal(terminalId: TerminalId): Promise<CommandResult<"terminal_attach">>;
+  /** Sends bytes to a terminal as if typed. */
+  writeTerminal(terminalId: TerminalId, data: string): Promise<CommandResult<"terminal_write">>;
+  /** Tells a terminal its new size. */
+  resizeTerminal(terminalId: TerminalId, cols: number, rows: number): Promise<CommandResult<"terminal_resize">>;
+  /**
+   * Closes a terminal and releases its PTY.
+   *
+   * @remarks
+   * With something running in it the host answers `terminal_has_process`; `force` is for asking
+   * again once the user agreed to end it (SPEC-0009).
+   */
+  closeTerminal(terminalId: TerminalId, force?: boolean): Promise<CommandResult<"terminal_close">>;
+  /**
+   * Follows one terminal's output on this connection.
+   *
+   * @remarks
+   * Output is not kept in a store: the terminal component owns the screen. Callers replay the
+   * `history` from {@link attachTerminal} first and then write what arrives here.
+   *
+   * @sideEffects Registers a listener until the returned function is called.
+   * @param terminalId - The terminal to follow.
+   * @param listener - Called with each chunk as the PTY wrote it.
+   * @returns A function that stops following.
+   */
+  onTerminalOutput(terminalId: TerminalId, listener: (data: string) => void): () => void;
   /** The remote state while the settings window watches it; idle after that window closes. */
   readonly remote: StoreApi<RemoteView>;
   /**
@@ -689,6 +733,9 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
   const installJob = createStore<InstallJob | null>(() => null);
   const setup = createStore<SetupView>(() => UNASKED_SETUP);
   const plans = createStore<Plans>(() => []);
+  const terminals = createStore<TerminalsView>(() => NO_TERMINALS);
+  /** Listeners per terminal; the terminal component keeps the screen, so nothing is buffered here. */
+  const terminalOutput = new Map<string, Set<(data: string) => void>>();
   const remote = createStore<RemoteView>(() => UNWATCHED_REMOTE);
   const tasks = createStore<TasksView>(() => UNWATCHED_TASKS);
   /** Whether a window watches the task list, asked for again on each connection. */
@@ -1553,6 +1600,44 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       diff.setState({ target, status: "ready", files, tooLarge, error }, true);
       return;
     }
+    if (message.type === "terminal_opened") {
+      // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
+      terminals.setState(
+        {
+          status: "ready",
+          terminals: withTerminal(terminals.getState().terminals, message.terminal),
+          generation: terminals.getState().generation,
+        },
+        true,
+      );
+      return;
+    }
+    if (message.type === "terminal_exited") {
+      terminals.setState(
+        {
+          status: "ready",
+          terminals: withExit(terminals.getState().terminals, message.terminalId, message.exitCode),
+          generation: terminals.getState().generation,
+        },
+        true,
+      );
+      return;
+    }
+    if (message.type === "terminal_closed") {
+      terminals.setState(
+        {
+          status: "ready",
+          terminals: terminals.getState().terminals.filter((open) => open.id !== message.terminalId),
+          generation: terminals.getState().generation,
+        },
+        true,
+      );
+      return;
+    }
+    if (message.type === "terminal_output") {
+      for (const listener of terminalOutput.get(message.terminalId) ?? []) listener(message.data);
+      return;
+    }
     if (message.type !== "response") {
       deliver(message);
       return;
@@ -1672,6 +1757,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         if (watchingSchedules) loadSchedules().catch(() => undefined);
         if (openedTask !== null) loadTask(openedTask).catch(() => undefined);
         resolveVisualsAgain().catch(() => undefined);
+        // A new socket: panes key themselves by this and attach again to the same PTYs.
+        terminals.setState((state) => ({ ...state, generation: state.generation + 1 }));
         // Fire and forget: the failure lands in the store.
         if (watchingRemote) void loadRemote();
         settle(connection.getState());
@@ -2075,6 +2162,40 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       // Stryker disable next-line BooleanLiteral: the new view sets every field, so merging equals replacing.
       if (!same) diff.setState(diffViewOf(target), true);
       if (live !== undefined) await request("watch_diff", { target });
+    },
+    terminals,
+    listTerminals: () => request("terminal_list", {}),
+    async restoreTerminals() {
+      const { terminals: running } = await request("terminal_list", {});
+      terminals.setState((state) => ({ status: "ready", terminals: running, generation: state.generation }));
+    },
+    async openTerminal(containerId, cols, rows) {
+      const { terminal } = await request("terminal_open", { containerId, cols, rows });
+      // The `terminal_opened` event may already have added it; either way the list ends up with one copy.
+      terminals.setState(
+        {
+          status: "ready",
+          terminals: withTerminal(terminals.getState().terminals, terminal),
+          generation: terminals.getState().generation,
+        },
+        true,
+      );
+      return { terminal };
+    },
+    attachTerminal: (terminalId) => request("terminal_attach", { terminalId }),
+    writeTerminal: (terminalId, data) => request("terminal_write", { terminalId, data }),
+    resizeTerminal: (terminalId, cols, rows) => request("terminal_resize", { terminalId, cols, rows }),
+    // Stryker disable next-line ConditionalExpression: JSON omits an undefined force either way.
+    closeTerminal: (terminalId, force) =>
+      request("terminal_close", force === undefined ? { terminalId } : { terminalId, force }),
+    onTerminalOutput(terminalId, listener) {
+      const listeners = terminalOutput.get(terminalId) ?? new Set();
+      listeners.add(listener);
+      terminalOutput.set(terminalId, listeners);
+      return () => {
+        listeners.delete(listener);
+        if (listeners.size === 0) terminalOutput.delete(terminalId);
+      };
     },
     remote,
     async watchRemote(on) {

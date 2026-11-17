@@ -56,6 +56,22 @@ export const AgentErrorCode = z.enum([
   "agent_question_open",
   "agent_text_too_long",
   "agent_bad_request",
+  /** The terminal named is gone, or was never this session's (SPEC-0009). */
+  "terminal_not_found",
+  /** The terminal was opened by someone else, or by the user. */
+  "terminal_not_owner",
+  /** The container already has as many terminals open as it allows. */
+  "terminal_limit",
+  /** The container has no directory to open a terminal in. */
+  "terminal_cwd_invalid",
+  /** The PTY would not start. */
+  "terminal_spawn_failed",
+  /** The text was larger than a terminal write accepts. */
+  "terminal_write_too_large",
+  /** The agent wrote faster than a terminal accepts. */
+  "terminal_write_too_fast",
+  /** Something is still running in it, so closing needs the user's agreement. */
+  "terminal_has_process",
   /** `ask_user` from a child the agent opened, which asks its parent instead (SPEC-0003). */
   "ask_user_unavailable",
   /** A study tool's ladder has fewer or more levels than allowed; `params` has `min`, `max`, `got` (SPEC-0008). */
@@ -210,6 +226,32 @@ const CallArgs = {
         ),
       ),
   }),
+  // A terminal an agent drives (SPEC-0009, "agent 操作终端"): the host opens it in the session's
+  // container and answers with the id the other five address.
+  open_terminal: z.strictObject({
+    command: z.string().min(1).max(2000),
+    title: z.string().min(1).max(40).optional(),
+  }),
+  read_terminal: z.strictObject({
+    terminalId: z.string().min(1).max(64),
+    lines: z.number().int().min(1).max(200).optional(),
+  }),
+  type_terminal: z.strictObject({
+    terminalId: z.string().min(1).max(64),
+    text: z.string().max(4096),
+    submit: z.boolean().optional(),
+  }),
+  key_terminal: z.strictObject({
+    terminalId: z.string().min(1).max(64),
+    key: z.enum(["enter", "esc", "ctrl-c", "ctrl-d", "tab", "shift-tab", "up", "down", "left", "right"]),
+  }),
+  wait_terminal: z.strictObject({
+    terminalId: z.string().min(1).max(64),
+    until: z.enum(["quiet", "exited"]).optional(),
+    quietMs: z.number().int().min(100).max(10_000).optional(),
+    timeoutMs: z.number().int().min(100).max(60_000).optional(),
+  }),
+  close_terminal: z.strictObject({ terminalId: z.string().min(1).max(64) }),
 } as const;
 
 /** The calls the extension makes. */
@@ -575,4 +617,35 @@ export interface CallResults {
   readonly ask: AskResult;
   readonly branch: { readonly dir: string };
   readonly ask_user: AskUserResult;
+  readonly open_terminal: {
+    readonly terminalId: string;
+    readonly title: string;
+    readonly directory: string;
+  };
+  readonly read_terminal: {
+    /** What a person would see, without escape sequences. */
+    readonly text: string;
+    readonly cols: number;
+    readonly rows: number;
+    readonly cursor: { readonly row: number; readonly col: number };
+    readonly state: "running" | "exited";
+    readonly exitCode: number | null;
+    /** What the program says about itself over OSC 7501, when it says anything. */
+    readonly reported: { readonly state: string; readonly app: string | null } | null;
+  };
+  readonly type_terminal: {
+    /** Whether the screen had settled when this returned; if not, read it and wait if needed. */
+    readonly settled: boolean;
+  };
+  readonly key_terminal: {
+    /** Whether the screen had settled when this returned. */
+    readonly settled: boolean;
+  };
+  readonly wait_terminal: {
+    /** The screen settled, which is not the same as the task finishing. */
+    readonly quiet: boolean;
+    readonly exited: boolean;
+    readonly exitCode: number | null;
+  };
+  readonly close_terminal: Record<string, never>;
 }

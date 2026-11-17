@@ -158,7 +158,7 @@ describe("what goes to the phone", () => {
     expect(Object.keys(PUSHED_TO_PHONE).toSorted()).toStrictEqual([...new Set(typesOf(HostMessage))].toSorted());
   });
 
-  it("holds back sign-in, install, pi updates, credentials and the remote state", () => {
+  it("holds back sign-in, install, pi updates, credentials, the remote state and terminals", () => {
     expect(
       Object.entries(PUSHED_TO_PHONE)
         .filter(([, pushed]) => !pushed)
@@ -172,6 +172,10 @@ describe("what goes to the phone", () => {
       "remote_updated",
       "schedules_updated",
       "visual_changed",
+      "terminal_opened",
+      "terminal_output",
+      "terminal_exited",
+      "terminal_closed",
     ]);
     expect(pushedToPhone({ type: "credentials_changed" })).toBe(false);
     expect(pushedToPhone({ type: "plans_updated", plans: [] })).toBe(true);

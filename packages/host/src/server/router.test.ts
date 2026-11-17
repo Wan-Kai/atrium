@@ -498,6 +498,54 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
         calls.push(["releaseVisual", connectionId, owner, path]);
       },
     },
+    terminals: {
+      list: (caller) => {
+        calls.push(["listTerminals", caller.clientId]);
+        return [];
+      },
+      open: (input) => {
+        calls.push(["openTerminal", input.caller.clientId, input.containerId]);
+        return {
+          id: "term_0123456789abcdef",
+          containerId: input.containerId,
+          title: "zsh",
+          cwd: "/tmp",
+          cols: input.cols,
+          rows: input.rows,
+          state: "running",
+          exitCode: null,
+          origin: "user",
+          sessionId: null,
+        };
+      },
+      attach: (connectionId, terminalId) => {
+        calls.push(["attachTerminal", connectionId, terminalId]);
+        return {
+          terminal: {
+            id: terminalId,
+            containerId: "cht_a",
+            title: "zsh",
+            cwd: "/tmp",
+            cols: 80,
+            rows: 24,
+            state: "running",
+            exitCode: null,
+            origin: "user",
+            sessionId: null,
+          },
+          history: "",
+        };
+      },
+      write: (connectionId, terminalId, data) => {
+        calls.push(["writeTerminal", connectionId, terminalId, data]);
+      },
+      resize: (connectionId, terminalId, cols, rows) => {
+        calls.push(["resizeTerminal", connectionId, terminalId, cols, rows]);
+      },
+      close: async (connectionId, terminalId) => {
+        calls.push(["closeTerminal", connectionId, terminalId]);
+      },
+    },
     tracer: recording.tracer,
     logger: recording.logger,
     containerOfSession: (sessionId) => SESSION_CONTAINERS[sessionId],
