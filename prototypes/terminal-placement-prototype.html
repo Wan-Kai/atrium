@@ -1,0 +1,772 @@
+<!doctype html>
+<!--
+  PROTOTYPE — 设计稿，不接入生产构建。内置终端（2026-11-12，还没有 SPEC）。
+
+  已定（2026-11-12 用户）：
+  · 人和 agent 都能开终端；agent 只负责"开一个跑某条命令的终端"，读输出仍走它自己的 Bash。
+  · 终端随 Atrium 退出而结束（宿主内 PTY，不做独立 holder）。
+  · 只桌面，手机不给（命令 local_only）。
+  · 和"在终端中打开"（cmux）并存，现有菜单不动。
+  · 渲染用 xterm.js。实测：claude / codex / opencode / pi 都能正常启动和退出，
+    唯一系统性缺口是 Kitty 键盘协议（影响 Shift+Enter 一类），先接受各家降级键。
+
+  这份原型只比较一件事：**终端放在哪**。三种放法各一屏，都是同一台机器上的真实内容形状：
+  A 独立标签（整块工作台） / B 右栏第三页（贴在对话右边） / C 对话下分屏（贴在对话下面）
+
+  判断依据看第 8 条：Claude Code 这类 TUI 在 80 列以下就开始挤压，B 的宽度是硬伤。
+
+  数值取自 design-language 的 token；终端块在浅色界面里也是深色（--term），和设置里的安装输出一致。
+-->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>原型 · 内置终端放在哪</title>
+    <style>
+      :root {
+        --window: #e8ecf2;
+        --sidebar-bg: linear-gradient(
+          #d5dbe9,
+          #dae0e9 10%,
+          #e1e4ea 25%,
+          #e3e7e9 35%,
+          #e3e7e9 65%,
+          #e2e4e6 75%,
+          #dee1e7 85%,
+          #d8dbe3
+        );
+        --main: #ffffff;
+        --surface-1: #ffffff;
+        --surface-2: #f2f2f4;
+        --surface-3: #e9e9ec;
+        --code: #f6f6f8;
+        --text: #1d1d1f;
+        --text-2: #2c2c30;
+        --text-3: #48484e;
+        --text-muted: #6e6e74;
+        --text-dim: #a1a1a7;
+        --line: rgba(0, 0, 0, 0.08);
+        --line-soft: rgba(0, 0, 0, 0.05);
+        --line-strong: rgba(0, 0, 0, 0.14);
+        --hover: rgba(0, 0, 0, 0.035);
+        --selected: rgba(0, 0, 0, 0.06);
+        --tint: #2f6fed;
+        --on-tint: #ffffff;
+        --attn: #dd8629;
+        --term: #0c0c0e;
+        --term-text: #d6d9de;
+        --term-dim: #7c8291;
+        --term-green: #7fd88f;
+        --term-blue: #7aa2f7;
+        --term-yellow: #e0af68;
+        --term-red: #f7768e;
+        --r-sm: 6px;
+        --r: 8px;
+        --r-md: 12px;
+        --float-shadow: 0 18px 48px rgba(16, 22, 38, 0.16), 0 2px 8px rgba(16, 22, 38, 0.08);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 40px 32px 80px;
+        background: #eef1f6;
+        color: var(--text);
+        font:
+          13px/1.55 -apple-system,
+          "SF Pro Text",
+          "PingFang SC",
+          sans-serif;
+      }
+      .page-title {
+        max-width: 1160px;
+        margin: 0 auto 8px;
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      .page-sub {
+        max-width: 1160px;
+        margin: 0 auto 32px;
+        color: var(--text-muted);
+        font-size: 13px;
+      }
+      .screen {
+        max-width: 1160px;
+        margin: 0 auto 56px;
+      }
+      .screen-head {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+      .screen-head h2 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 600;
+      }
+      .screen-head .verdict {
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+      .screen-head .tag {
+        font-size: 11px;
+        padding: 1px 7px;
+        border-radius: 999px;
+        background: rgba(47, 111, 237, 0.1);
+        color: var(--tint);
+        font-weight: 500;
+      }
+      .frame-row {
+        display: flex;
+        gap: 24px;
+        align-items: flex-start;
+      }
+      .frame {
+        flex: 0 0 860px;
+        height: 540px;
+        border-radius: 12px;
+        overflow: hidden;
+        background: var(--window);
+        box-shadow: var(--float-shadow);
+        display: flex;
+      }
+      .notes {
+        flex: 1;
+        min-width: 240px;
+        font-size: 12px;
+        color: var(--text-2);
+      }
+      .notes ol {
+        margin: 0;
+        padding-left: 0;
+        list-style: none;
+        counter-reset: n;
+      }
+      .notes li {
+        counter-increment: n;
+        position: relative;
+        padding-left: 20px;
+        margin-bottom: 9px;
+      }
+      .notes li::before {
+        content: counter(n);
+        position: absolute;
+        left: 0;
+        top: 1px;
+        width: 15px;
+        height: 15px;
+        border-radius: 50%;
+        background: var(--text);
+        color: #fff;
+        font-size: 10px;
+        line-height: 15px;
+        text-align: center;
+      }
+      .notes li b {
+        font-weight: 600;
+      }
+      .notes .nv {
+        color: var(--attn);
+        font-weight: 500;
+      }
+
+      /* 窗口骨架：侧栏 + 主区 */
+      .sidebar {
+        width: 176px;
+        flex: 0 0 176px;
+        background: var(--sidebar-bg);
+        border-right: 1px solid var(--line-soft);
+        padding: 28px 8px 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        font-size: 12px;
+      }
+      .traffic {
+        display: flex;
+        gap: 6px;
+        padding: 0 6px 12px;
+      }
+      .traffic i {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.13);
+      }
+      .side-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 7px;
+        border-radius: var(--r-sm);
+        color: var(--text-3);
+      }
+      .side-row.active {
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--text);
+        font-weight: 500;
+      }
+      .side-row .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--text-dim);
+      }
+      .side-row .dot.run {
+        background: var(--tint);
+      }
+      .side-label {
+        padding: 12px 7px 4px;
+        color: var(--text-dim);
+        font-size: 10px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        background: var(--main);
+      }
+
+      /* 标签栏 */
+      .tabs {
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        padding: 8px 10px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .tab {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 10px;
+        border-radius: 7px 7px 0 0;
+        color: var(--text-muted);
+        font-size: 12px;
+        max-width: 210px;
+      }
+      .tab.on {
+        background: var(--surface-2);
+        color: var(--text);
+        font-weight: 500;
+      }
+      .tab .x {
+        color: var(--text-dim);
+        font-size: 11px;
+      }
+      .tab .glyph {
+        font-family: "SF Mono", Menlo, monospace;
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+      .tab .pill {
+        font-size: 10px;
+        padding: 0 5px;
+        border-radius: 999px;
+        background: rgba(47, 111, 237, 0.12);
+        color: var(--tint);
+      }
+      .tabs .add {
+        margin-left: 4px;
+        color: var(--text-muted);
+        padding: 3px 7px;
+        border-radius: 6px;
+      }
+      .tabs .add:hover {
+        background: var(--hover);
+      }
+
+      /* 对话区 */
+      .chat {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .chat-scroll {
+        flex: 1;
+        padding: 18px 26px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        overflow: hidden;
+      }
+      .msg {
+        font-size: 12.5px;
+        color: var(--text-2);
+        max-width: 620px;
+      }
+      .msg.user {
+        align-self: flex-end;
+        background: var(--surface-2);
+        border-radius: 10px;
+        padding: 7px 11px;
+      }
+      .msg .who {
+        font-size: 10.5px;
+        color: var(--text-dim);
+        margin-bottom: 3px;
+        letter-spacing: 0.02em;
+      }
+      .code-block {
+        background: var(--code);
+        border: 1px solid var(--line-soft);
+        border-radius: var(--r);
+        padding: 9px 11px;
+        font:
+          11.5px/1.5 "SF Mono",
+          Menlo,
+          monospace;
+        color: var(--text-3);
+        white-space: pre;
+      }
+      .composer {
+        margin: 0 26px 16px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--r-md);
+        padding: 9px 11px;
+        color: var(--text-dim);
+        font-size: 12px;
+      }
+
+      /* 终端块 */
+      .term-wrap {
+        display: flex;
+        flex-direction: column;
+        background: var(--term);
+        min-height: 0;
+      }
+      .term-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        color: var(--term-dim);
+        font-size: 11px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        flex: 0 0 auto;
+      }
+      .term-head .name {
+        color: var(--term-text);
+        font:
+          11.5px "SF Mono",
+          Menlo,
+          monospace;
+      }
+      .term-head .grow {
+        flex: 1;
+      }
+      .term-head .chip {
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 5px;
+        padding: 0 5px;
+      }
+      .term {
+        flex: 1;
+        min-height: 0;
+        padding: 9px 12px;
+        color: var(--term-text);
+        font:
+          11.5px/1.45 "SF Mono",
+          Menlo,
+          monospace;
+        white-space: pre;
+        overflow: hidden;
+      }
+      .term .dim {
+        color: var(--term-dim);
+      }
+      .term .g {
+        color: var(--term-green);
+      }
+      .term .b {
+        color: var(--term-blue);
+      }
+      .term .y {
+        color: var(--term-yellow);
+      }
+      .term .r {
+        color: var(--term-red);
+      }
+      .term .rev {
+        background: rgba(255, 255, 255, 0.14);
+      }
+      .cursor {
+        display: inline-block;
+        width: 6px;
+        height: 12px;
+        background: var(--term-text);
+        vertical-align: -2px;
+      }
+
+      /* 右栏 */
+      .right {
+        flex: 0 0 340px;
+        border-left: 1px solid var(--line);
+        background: var(--main);
+        display: flex;
+        flex-direction: column;
+      }
+      .right-tabs {
+        display: flex;
+        gap: 2px;
+        padding: 8px 10px 0;
+        border-bottom: 1px solid var(--line);
+        font-size: 12px;
+      }
+      .right-tab {
+        padding: 5px 9px;
+        border-radius: 6px 6px 0 0;
+        color: var(--text-muted);
+      }
+      .right-tab.on {
+        background: var(--surface-2);
+        color: var(--text);
+        font-weight: 500;
+      }
+
+      /* 分屏把手 */
+      .splitter {
+        height: 8px;
+        background: var(--surface-2);
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .splitter i {
+        width: 34px;
+        height: 3px;
+        border-radius: 2px;
+        background: var(--line-strong);
+      }
+
+      .legend {
+        max-width: 1160px;
+        margin: 0 auto 40px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+        font-size: 12px;
+      }
+      .legend div {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: var(--r-md);
+        padding: 12px 14px;
+      }
+      .legend h3 {
+        margin: 0 0 6px;
+        font-size: 12.5px;
+      }
+      .legend .k {
+        color: var(--text-muted);
+      }
+      .legend .good {
+        color: #2c7a4b;
+      }
+      .legend .bad {
+        color: #b4472f;
+      }
+    </style>
+  </head>
+  <body>
+    <h1 class="page-title">内置终端放在哪：三种放法</h1>
+    <p class="page-sub">
+      同一份内容在三种位置上的样子。终端块在浅色界面里也是深色（design-language 的 <code>--term</code>）。
+      场景都是真实形状：一个工作区标签、一个对话标签，右边是文件/更改栏。
+    </p>
+
+    <div class="legend">
+      <div>
+        <h3>A 独立标签</h3>
+        <div><span class="good">宽度够</span>，Claude Code / Codex 这类 TUI 能按 100+ 列排版。</div>
+        <div class="k">代价：看终端时离开对话，切回来要来回点标签。</div>
+      </div>
+      <div>
+        <h3>B 右栏第三页</h3>
+        <div><span class="good">不离开对话</span>，和"文件""更改"并排，顺手。</div>
+        <div class="bad">宽度只有 340px（约 44 列），TUI 会挤成一团，只适合看日志。</div>
+      </div>
+      <div>
+        <h3>C 对话下分屏</h3>
+        <div><span class="good">边看对话边敲</span>，高度可拖，dev server 日志和 agent 输出能对照看。</div>
+        <div class="k">代价：跟对话滚动区抢高度；多个终端要靠内部标签区分。</div>
+      </div>
+    </div>
+
+    <!-- ============ A ============ -->
+    <section class="screen">
+      <div class="screen-head">
+        <h2>A · 独立标签</h2>
+        <span class="tag">推荐</span>
+        <span class="verdict">终端是一等公民，和"对话""任务"平级</span>
+      </div>
+      <div class="frame-row">
+        <div class="frame">
+          <div class="sidebar">
+            <div class="traffic"><i></i><i></i><i></i></div>
+            <div class="side-row"><span class="dot run"></span>修复登录超时</div>
+            <div class="side-row"><span class="dot"></span>重写同步队列</div>
+            <div class="side-label">项目</div>
+            <div class="side-row active"><span class="dot"></span>atrium</div>
+            <div class="side-row"><span class="dot"></span>atrium · 研究终端</div>
+            <div class="side-label">其他</div>
+            <div class="side-row"><span class="dot"></span>学习 · LLM 基础</div>
+            <div class="side-row"><span class="dot"></span>任务</div>
+          </div>
+          <div class="main">
+            <div class="tabs">
+              <div class="tab"><span class="glyph">◆</span>修复登录超时<span class="x">×</span></div>
+              <div class="tab on"><span class="glyph">›_</span>终端 · atrium<span class="x">×</span></div>
+              <div class="tab">
+                <span class="glyph">›_</span>dev server<span class="pill">agent</span><span class="x">×</span>
+              </div>
+              <div class="add">+</div>
+            </div>
+            <div class="term-wrap" style="flex: 1">
+              <div class="term-head">
+                <span class="name">zsh — ~/Documents/MT/projects/atrium</span>
+                <span class="grow"></span>
+                <span class="chip">112×51</span>
+                <span class="chip">重新开始</span>
+                <span class="chip">清屏</span>
+              </div>
+              <div class="term">
+                <span class="dim">➜</span> <span class="b">atrium</span> <span class="dim">git:(</span
+                ><span class="r">main</span><span class="dim">)</span> <span class="g">claude</span>
+                <span class="dim">╭──────────────────────────────────────────────────────────────╮</span>
+                <span class="dim">│</span> <span class="y">✻</span> Welcome to <b>Claude Code</b> v2.1.322
+                <span class="dim">│</span>
+                <span class="dim">╰──────────────────────────────────────────────────────────────╯</span>
+
+                <span class="dim"> cwd:</span> ~/Documents/MT/projects/atrium
+
+                <span class="dim">&gt;</span> 把 src/host/terminal 的 PTY 生命周期补上，顺便跑一下测试<span
+                  class="cursor"
+                ></span>
+
+                <span class="dim"> ⏵⏵ 按 ⏎ 发送 · \⏎ 换行 · Esc 取消</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="notes">
+          <ol>
+            <li>
+              <b>入口</b>：标签栏的 <code>+</code> 里多一项"新建终端"，默认开在当前工作区目录；对话里的会话开在
+              <code>~</code>，和"在终端中打开"的目录规则一致。
+            </li>
+            <li><b>宽度</b>：整块工作台给满，112 列。这是 TUI 唯一舒服的放法。</li>
+            <li>
+              <b>agent 开的终端</b>：同样落成一个标签，标签上标
+              <span
+                class="pill"
+                style="
+                  font-size: 10px;
+                  padding: 0 5px;
+                  border-radius: 999px;
+                  background: rgba(47, 111, 237, 0.12);
+                  color: #2f6fed;
+                "
+                >agent</span
+              >，来源一眼看得出。它只开终端，不读输出。
+            </li>
+            <li><b>关闭</b>：关标签 = 结束这个 PTY（要确认一次，因为里面可能有在跑的任务）。</li>
+            <li><b>代价</b>：看终端时看不见对话；要对照就得多点一次标签。</li>
+            <li class="nv">
+              <b>和其他放法组合</b>：A 不排斥 C——日常用 A，想边看边敲时把终端拖成对话下的分屏。第一版只做 A 也成立。
+            </li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ B ============ -->
+    <section class="screen">
+      <div class="screen-head">
+        <h2>B · 右栏第三页</h2>
+        <span class="verdict">顺手，但宽度是硬伤</span>
+      </div>
+      <div class="frame-row">
+        <div class="frame">
+          <div class="sidebar">
+            <div class="traffic"><i></i><i></i><i></i></div>
+            <div class="side-row"><span class="dot run"></span>修复登录超时</div>
+            <div class="side-row"><span class="dot"></span>重写同步队列</div>
+            <div class="side-label">项目</div>
+            <div class="side-row active"><span class="dot"></span>atrium</div>
+            <div class="side-row"><span class="dot"></span>atrium · 研究终端</div>
+          </div>
+          <div class="main">
+            <div class="tabs">
+              <div class="tab on"><span class="glyph">◆</span>修复登录超时<span class="x">×</span></div>
+              <div class="tab"><span class="glyph">◆</span>重写同步队列<span class="x">×</span></div>
+              <div class="add">+</div>
+            </div>
+            <div style="flex: 1; display: flex; min-height: 0">
+              <div class="chat">
+                <div class="chat-scroll">
+                  <div class="msg user">把 PTY 的关闭路径补上，跑一下宿主测试</div>
+                  <div class="msg">
+                    <div class="who">pi</div>
+                    改了两处：<code>TerminalService.close</code> 等 PTY 退出再放锁，关标签时先问一次。<br />
+                    宿主测试 361/361，新增 7 条。
+                  </div>
+                  <div class="code-block">
+                    packages/host/src/terminal/service.ts +42 −7 packages/ui/src/tabs/terminal-tab.tsx +88 −0
+                  </div>
+                  <div class="msg">
+                    <div class="who">pi</div>
+                    顺便把 dev server 起在终端里了，看右栏。
+                  </div>
+                </div>
+                <div class="composer">继续让 pi 改……</div>
+              </div>
+              <div class="right">
+                <div class="right-tabs">
+                  <div class="right-tab">文件</div>
+                  <div class="right-tab">更改 <span style="color: var(--text-dim)">3</span></div>
+                  <div class="right-tab on">终端</div>
+                </div>
+                <div class="term-wrap" style="flex: 1; border-radius: 0">
+                  <div class="term-head">
+                    <span class="name">dev server</span><span class="grow"></span><span class="chip">44×46</span>
+                  </div>
+                  <div class="term" style="font-size: 11px">
+                    <span class="g">VITE</span> v7.2.1 <span class="dim">ready in 312 ms</span>
+                    <span class="dim">➜ Local:</span> <span class="b">http://local</span>
+                    <span class="b">host:5173/</span>
+                    <span class="dim">➜ Network:</span> <span class="dim">use --host</span>
+                    <span class="dim"> to expose</span>
+
+                    <span class="dim">10:22:04</span> <span class="g">[vite]</span> hmr update
+                    <span class="dim">/src/ui/chat/view.tsx</span>
+                    <span class="dim">10:22:19</span> <span class="g">[vite]</span> hmr update
+                    <span class="dim">/src/ui/chat/view.tsx</span>
+
+                    <span class="dim">➜</span> <span class="b">npm</span> test -- --watch
+                    <span class="y"> RUNS </span> ui/chat <span class="g"> ✓ </span>renders a step
+                    <span class="g"> ✓ </span>collapses on
+                    <span class="dim"> unmount</span>
+                    <span class="r"> ✗ </span>keeps scroll
+                    <span class="dim"> position</span>
+                    <span class="cursor"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="notes">
+          <ol>
+            <li><b>入口</b>：右栏第三个页签，和"文件""更改"并排；不需要新开标签，就不离开对话。</li>
+            <li>
+              <b>宽度</b> <span class="nv">（硬伤）</span>：340px 大约 44 列。上面的 dev server
+              日志已经开始折行，测试结果也从一行变成两行。
+            </li>
+            <li>
+              <b>跑 TUI 会怎样</b>：Claude Code 的欢迎框、表格、diff 视图在 44 列下会挤成一片。这一屏故意没放
+              CLI，因为放进来就说明问题了。
+            </li>
+            <li>
+              <b>适合</b>：只在旁边瞄一眼的日志、一次性命令（<code>git status</code>、<code>npm run build</code>）。
+            </li>
+            <li><b>状态</b>：切到"文件"页时终端还活着（PTY 不随页签卸载），但看不见它滚，看不出任务结束没有。</li>
+            <li class="nv"><b>结论</b>：只有当终端"只是日志面板"时才成立；一旦要跑 agent CLI，这条就废。</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ C ============ -->
+    <section class="screen">
+      <div class="screen-head">
+        <h2>C · 对话下分屏</h2>
+        <span class="verdict">边看边敲最舒服，但它和对话抢空间</span>
+      </div>
+      <div class="frame-row">
+        <div class="frame">
+          <div class="sidebar">
+            <div class="traffic"><i></i><i></i><i></i></div>
+            <div class="side-row"><span class="dot run"></span>修复登录超时</div>
+            <div class="side-row"><span class="dot"></span>重写同步队列</div>
+            <div class="side-label">项目</div>
+            <div class="side-row active"><span class="dot"></span>atrium</div>
+            <div class="side-row"><span class="dot"></span>atrium · 研究终端</div>
+          </div>
+          <div class="main">
+            <div class="tabs">
+              <div class="tab on"><span class="glyph">◆</span>修复登录超时<span class="x">×</span></div>
+              <div class="tab"><span class="glyph">◆</span>重写同步队列<span class="x">×</span></div>
+              <div class="add">+</div>
+            </div>
+            <div class="chat" style="flex: 0 0 232px">
+              <div class="chat-scroll" style="padding: 12px 22px; gap: 10px">
+                <div class="msg user">把 PTY 的关闭路径补上，跑一下宿主测试</div>
+                <div class="msg">
+                  <div class="who">pi</div>
+                  改了两处，宿主测试 361/361。dev server 我起在下面了。
+                </div>
+              </div>
+              <div class="composer" style="margin: 0 22px 10px">继续让 pi 改……</div>
+            </div>
+            <div class="splitter"><i></i></div>
+            <div class="term-wrap" style="flex: 1">
+              <div class="term-head">
+                <span class="name">dev server</span>
+                <span class="dim" style="color: var(--term-dim)">·</span>
+                <span class="name">zsh</span>
+                <span class="grow"></span>
+                <span class="chip">108×18</span>
+                <span class="chip">最大化</span>
+                <span class="chip">收起</span>
+              </div>
+              <div class="term">
+                <span class="g">VITE</span> v7.2.1 <span class="dim">ready in 312 ms</span>
+                <span class="dim">➜ Local:</span> <span class="b">http://localhost:5173/</span>
+                <span class="dim">➜ press h + enter to show help</span>
+
+                <span class="dim">10:22:04</span> <span class="g">[vite]</span> hmr update
+                <span class="dim">/src/ui/chat/view.tsx</span> <span class="dim">10:22:19</span>
+                <span class="g">[vite]</span> hmr update <span class="dim">/src/ui/chat/view.tsx</span>
+                <span class="y"> RUNS </span> ui/chat <span class="g"> ✓ </span>renders a step
+                <span class="g"> ✓ </span>collapses on unmount <span class="r"> ✗ </span>keeps scroll position
+                <span class="dim">➜</span> <span class="b">atrium</span> <span class="dim">git:(</span
+                ><span class="r">main</span><span class="dim">)</span> <span class="g">git status --short</span>
+                <span class="y"> M</span> packages/host/src/terminal/service.ts
+                <span class="y"> M</span> packages/ui/src/tabs/terminal-tab.tsx
+                <span class="y">??</span> docs/research/embedded-terminal.md <span class="dim">➜</span>
+                <span class="b">atrium</span> <span class="dim">git:(</span><span class="r">main</span
+                ><span class="dim">)</span> <span class="cursor"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="notes">
+          <ol>
+            <li>
+              <b>入口</b>：对话输入框上方一个"终端"按钮，或者标签栏 <code>+</code> 里"在对话下开终端"。默认高度约 40%。
+            </li>
+            <li><b>宽度</b>：不用让出宽度，108 列，TUI 也能跑；代价是高度只有 18 行。</li>
+            <li><b>多个终端</b>：抬头一行放内部页签（dev server / zsh / claude），每个是一个独立 PTY。</li>
+            <li>
+              <b>和对话对照</b>：agent 说"我改好了"，下面终端就是同一时刻的
+              <code>git status</code>——这是这个放法唯一强过 A 的地方。
+            </li>
+            <li><b>拖拽</b>：中间 8px 把手可拖；"最大化"临时撑满（等价于 A），"收起"留一条抬头显示最后一行输出。</li>
+            <li class="nv">
+              <b>风险</b>：长对话本来就靠滚动，多一条常驻分屏会让对话更窄；要不要记住"这条对话上次开着终端"需要定。
+            </li>
+          </ol>
+        </div>
+      </div>
+    </section>
+  </body>
+</html>
