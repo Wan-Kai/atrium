@@ -510,6 +510,23 @@ describe("what an agent may do", () => {
     await expect(waiting).resolves.toStrictEqual({ quiet: false, exited: true, exitCode: 0 });
   });
 
+  it("does not call a prompt that was already there quiet while a command starts", async () => {
+    const { service, clock, spawned } = harness();
+    const terminal = agentOpen(service);
+    // The shell's prompt, long before the wait: it says nothing about the command just submitted.
+    spawned[0]?.output("$ ");
+    const waiting = service.agentWait(SESSION, terminal.id, { quietMs: 500, timeoutMs: 3000 });
+    let answered = false;
+    void waiting.then(() => {
+      answered = true;
+      return answered;
+    });
+    clock.advance(1200);
+    expect(answered).toBe(false);
+    clock.advance(3000);
+    await expect(waiting).resolves.toStrictEqual({ quiet: false, exited: false, exitCode: null });
+  });
+
   it("does not call a program that has not printed yet quiet", async () => {
     const { service, clock } = harness();
     const terminal = agentOpen(service);
@@ -551,9 +568,11 @@ describe("what an agent may do", () => {
   });
 
   it("closes only what it opened", async () => {
-    const { service, spawned } = harness();
+    const { service, clock, spawned } = harness();
     const terminal = agentOpen(service);
-    await service.agentClose(SESSION, terminal.id);
+    const closing = service.agentClose(SESSION, terminal.id);
+    clock.advance(4000);
+    await closing;
     expect(spawned[0]?.calls).toContain("kill:SIGTERM");
     const mine = openIn(service);
     await expect(service.agentClose(SESSION, mine.id)).rejects.toMatchObject({ code: "terminal_not_owner" });
@@ -564,8 +583,8 @@ describe("edges the limits and closes turn on", () => {
   it("clamps the quiet window to what the protocol allows", async () => {
     const { service, clock, spawned } = harness();
     const terminal = agentOpen(service);
-    spawned[0]?.output("x");
     const waiting = service.agentWait(SESSION, terminal.id, { quietMs: 1, timeoutMs: 5000 });
+    spawned[0]?.output("x");
     let answered = false;
     void waiting.then(() => {
       answered = true;
@@ -598,10 +617,12 @@ describe("edges the limits and closes turn on", () => {
   });
 
   it("closes everything when the host goes away", async () => {
-    const { service, spawned } = harness();
+    const { service, clock, spawned } = harness();
     openIn(service);
     agentOpen(service);
-    await service.closeAll();
+    const closing = service.closeAll();
+    clock.advance(4000);
+    await closing;
     expect(service.openTerminals()).toStrictEqual([]);
     expect(spawned.map((pty) => pty.calls.filter((call) => call === "kill:SIGTERM").length)).toStrictEqual([1, 1]);
   });
@@ -637,8 +658,8 @@ describe("what a caller may ask for", () => {
   it("keeps the quiet floor below the timeout, so a short timeout still settles", async () => {
     const { service, clock, spawned } = harness();
     const terminal = agentOpen(service);
-    spawned[0]?.output("x");
     const waiting = service.agentWait(SESSION, terminal.id, { quietMs: 5000, timeoutMs: 100 });
+    spawned[0]?.output("x");
     // The timeout is raised to the quiet window: quiet wins once the screen has been still that long.
     clock.advance(5100);
     await expect(waiting).resolves.toMatchObject({ quiet: true });

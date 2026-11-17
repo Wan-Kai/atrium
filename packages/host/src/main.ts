@@ -1245,6 +1245,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await toolbox.close();
     await remote.close();
     await server.close();
+    // Terminals last: their tabs are gone with the server, and their processes get the grace period.
+    await terminals.closeAll();
     await translations.close();
     // Naming may be waiting on a shared cold model query: abort both before awaiting either.
     const namingClosed = namer.close();

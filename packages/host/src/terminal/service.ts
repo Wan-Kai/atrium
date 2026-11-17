@@ -307,6 +307,66 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
    * @param entry - The terminal.
    * @param exitCode - What its process returned.
    */
+  /** One close per terminal, shared by whoever asks for it (SPEC-0009, "生命周期"). */
+  const closing = new Map<string, Promise<void>>();
+
+  /**
+   * Ends a terminal once, and waits for it.
+   *
+   * @remarks
+   * The user's tab, the agent's tool and the host's shutdown all come through here: a terminal is
+   * signalled once, the escalation is cancelled when it exits, and a second ask waits for the
+   * first instead of starting another (SPEC-0009, "生命周期").
+   *
+   * @sideEffects Signals the process group, emits `terminal_exited` and `terminal_closed`.
+   * @param entry - The terminal.
+   * @returns A promise that settles when the terminal is gone.
+   */
+  const closeEntry = (entry: Running): Promise<void> => {
+    const started = closing.get(entry.terminal.id);
+    if (started !== undefined) return started;
+    const done = (async () => {
+      if (entry.exited) {
+        finish(entry);
+        return;
+      }
+      entry.pty.kill("SIGTERM");
+      await new Promise<void>((resolve) => {
+        const escalation = trackedTimeout(
+          options.clock,
+          options.resources,
+          () => {
+            entry.pty.kill("SIGKILL");
+          },
+          killGraceMs,
+        );
+        // A close cannot hang the command it answers, and an unknown exit is not reported as 0.
+        const giveUp = trackedTimeout(
+          options.clock,
+          options.resources,
+          () => {
+            escalation();
+            settle(entry, null);
+            finish(entry);
+            resolve();
+          },
+          killGraceMs + 1000,
+        );
+        entry.cancelKill = () => {
+          escalation();
+          giveUp();
+        };
+        entry.resolveClose = () => {
+          escalation();
+          giveUp();
+          resolve();
+        };
+      });
+    })();
+    closing.set(entry.terminal.id, done);
+    return done;
+  };
+
   /**
    * Waits until the screen has settled after a write.
    *
@@ -414,7 +474,7 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
    * @param entry - The terminal.
    * @param exitCode - What its process returned.
    */
-  const settle = (entry: Running, exitCode: number): void => {
+  const settle = (entry: Running, exitCode: number | null): void => {
     if (entry.exited) return;
     entry.exited = true;
     entry.cancelKill?.();
@@ -422,7 +482,8 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
     entry.resolveClose?.();
     entry.resolveClose = null;
     entry.terminal = { ...entry.terminal, state: "exited", exitCode };
-    tell(entry, { type: "terminal_exited", terminalId: entry.terminal.id, exitCode });
+    // -1 is "never saw it exit": a close that gave up must not report a real-looking 0.
+    tell(entry, { type: "terminal_exited", terminalId: entry.terminal.id, exitCode: exitCode ?? -1 });
   };
 
   /**
@@ -575,40 +636,7 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
       if (force !== true && (await this.hasForegroundProcess(terminalId))) {
         throw new CommandError("terminal_has_process");
       }
-      // A shell exits on SIGTERM; a stubborn program gets SIGKILL after the grace period.
-      entry.pty.kill("SIGTERM");
-      await new Promise<void>((resolve) => {
-        const escalation = trackedTimeout(
-          options.clock,
-          options.resources,
-          () => {
-            entry.pty.kill("SIGKILL");
-          },
-          killGraceMs,
-        );
-        // Whatever happens, a close cannot hang the command it answers.
-        const giveUp = trackedTimeout(
-          options.clock,
-          options.resources,
-          () => {
-            escalation();
-            settle(entry, 0);
-            finish(entry);
-            resolve();
-          },
-          killGraceMs + 1000,
-        );
-        entry.cancelKill = () => {
-          escalation();
-          giveUp();
-        };
-        entry.resolveClose = () => {
-          escalation();
-          giveUp();
-          resolve();
-        };
-        if (entry.exited) entry.resolveClose();
-      });
+      await closeEntry(entry);
     },
 
     async agentRead(sessionId, terminalId, lines) {
@@ -648,10 +676,10 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
       const quietMs = Math.min(Math.max(options2.quietMs ?? AGENT_QUIET_MS, 100), AGENT_QUIET_MAX_MS);
       const timeoutMs = Math.max(options2.timeoutMs ?? AGENT_WAIT_TIMEOUT_MS, quietMs);
       const started = options.clock.now();
-      // Silence before anything was printed is not quiet: a program that has not drawn yet is
-      // still starting (measured with `mc --code`: 6.7 s before its first screen). Anything it
-      // printed before the wait counts: the question is whether the screen has settled since.
-      const from = 0;
+      // Quiet means "printed something since this wait began, then stopped": a shell prompt from
+      // before the wait proves nothing, which is exactly the `mc --code` trap — the command is
+      // submitted, the first screen has not arrived, and the old prompt makes it look settled.
+      const from = entry.outputs;
       return new Promise((resolve) => {
         /**
          * Decides whether the wait is over.
@@ -684,11 +712,7 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
     },
 
     async agentClose(sessionId, terminalId) {
-      const entry = mustOwnAgent(sessionId, terminalId);
-      entry.pty.kill("SIGTERM");
-      if (!entry.exited) {
-        trackedTimeout(options.clock, options.resources, () => entry.pty.kill("SIGKILL"), killGraceMs);
-      }
+      await closeEntry(mustOwnAgent(sessionId, terminalId));
     },
 
     async hasForegroundProcess(terminalId) {
@@ -708,16 +732,8 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
     },
 
     async closeAll() {
-      // The host is going away; a second SIGTERM is useless, so the grace period is not awaited.
-      // Deleting the current entry while iterating a Map is safe: the iterator skips it.
-      for (const entry of running.values()) {
-        try {
-          entry.pty.kill("SIGTERM");
-        } catch {
-          // Already gone; nothing to end.
-        }
-        finish(entry);
-      }
+      // The host is going away, but a program that ignores SIGTERM still gets its SIGKILL.
+      await Promise.all([...running.values()].map(async (entry) => closeEntry(entry)));
     },
   };
 }
