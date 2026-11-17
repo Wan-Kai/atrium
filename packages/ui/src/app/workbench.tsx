@@ -135,6 +135,7 @@ function fireAndForget(command: Promise<unknown>): void {
  * @param area - The task area's state: ⌘N and ⌘T leave it, and the keys for tabs do nothing while it shows, as it
  * has its own.
  * @param learning - The study store, whose pages the keys leave as the new-workspace page.
+ * @param closeTerminal - Closes a terminal through the one path that asks about a running program.
  */
 function useTabShortcuts(
   client: AtriumClient,
@@ -142,6 +143,7 @@ function useTabShortcuts(
   views: StoreApi<WorkspaceViews>,
   area: StoreApi<TaskArea>,
   learning: StoreApi<LearningState>,
+  closeTerminal: (terminalId: string) => void,
 ): void {
   // ⌘W and ⌘, the main process took, as with the focus in a visual (SPEC-0007, "键盘").
   useEffect(() => playMenuShortcuts(desktopBridge()?.onShortcut), []);
@@ -185,9 +187,12 @@ function useTabShortcuts(
       else if (onPage) return;
       else if (!event.shiftKey && key === "w" && homeShown) {
         // The home tab cannot close.
-      } else if (!event.shiftKey && key === "w" && container !== null && view?.active != null)
-        closing = closeViewer(views, container, view.active, open);
-      else if (!event.shiftKey && key === "w" && tabs?.active != null) fireAndForget(client.closeTab(tabs.active));
+      } else if (!event.shiftKey && key === "w" && container !== null && view?.active != null) {
+        // A terminal closes like its tab's × does: through the one path that asks about a program
+        // still running, and that ends the PTY rather than only its tab (SPEC-0009).
+        if (view.active.startsWith("terminal:")) closeTerminal(view.active.slice("terminal:".length));
+        else closing = closeViewer(views, container, view.active, open);
+      } else if (!event.shiftKey && key === "w" && tabs?.active != null) fireAndForget(client.closeTab(tabs.active));
       else if (!event.shiftKey && /^[1-9]$/.test(event.key)) goTo = ordered[Number(event.key) - 1];
       else if (event.shiftKey && event.code === "BracketLeft") goTo = ordered[homeAt - 1];
       else if (event.shiftKey && event.code === "BracketRight") goTo = ordered[homeAt + 1];
@@ -206,7 +211,7 @@ function useTabShortcuts(
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [client, pages, views, learning, area]);
+  }, [client, pages, views, learning, area, closeTerminal]);
 }
 
 /**
@@ -662,12 +667,6 @@ function MainWindow({
     return () => window.removeEventListener("focus", onFocus);
   }, [client]);
 
-  useTabShortcuts(client, pages, views, area, learning);
-  useSessionShows(views, learning, container, sessionId);
-  usePaneShortcuts(client, pages, panes);
-  // On the new-workspace page or a learning page, under a viewer tab or a direction's home, no session shows.
-  const sessionShown = pageProject === null && learningPage === null && viewer === null && !homeShown;
-  useSeenAttention(client, index, sessionShown ? sessionId : null);
   /**
    * Opens a terminal in this container and shows it as a tab.
    *
@@ -733,6 +732,13 @@ function MainWindow({
     };
     attempt(false);
   };
+
+  useTabShortcuts(client, pages, views, area, learning, closeTerminalHere);
+  useSessionShows(views, learning, container, sessionId);
+  usePaneShortcuts(client, pages, panes);
+  // On the new-workspace page or a learning page, under a viewer tab or a direction's home, no session shows.
+  const sessionShown = pageProject === null && learningPage === null && viewer === null && !homeShown;
+  useSeenAttention(client, index, sessionShown ? sessionId : null);
   /**
    * Leaves the new-workspace page, the learning pages and the task area.
    *

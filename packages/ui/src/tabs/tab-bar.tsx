@@ -1,5 +1,5 @@
 import { type AtriumClient, isDirectionId, isWorkspaceId } from "@atrium/client";
-import type { ContainerId, SessionSummary } from "@atrium/protocol";
+import type { ContainerId, SessionSummary, Terminal } from "@atrium/protocol";
 import {
   ArrowBendDownRight,
   CaretDown,
@@ -137,6 +137,7 @@ export function TabBar({
 }) {
   const folded = useStore(panes, (state) => state.sidebarCollapsed);
   const view = useStore(views, (state) => viewOf(state, containerId));
+  const terminals = useStore(client.terminals, (state) => state.terminals);
   const mode = useDiffMode(client, views, isWorkspaceId(containerId) ? containerId : null);
   const homeShown = home?.shown ?? false;
   const index = useStore(client.index);
@@ -225,6 +226,7 @@ export function TabBar({
             <ViewerTabButton
               key={key}
               tab={tab}
+              terminal={tab.kind === "terminal" ? terminals.find((one) => one.id === tab.id) : undefined}
               selected={key === view.active}
               described={
                 tab.kind === "file"
@@ -445,6 +447,7 @@ function PanelToggle({
  */
 function ViewerTabButton({
   tab,
+  terminal,
   selected,
   described,
   onSelect,
@@ -452,16 +455,21 @@ function ViewerTabButton({
   onClose,
 }: {
   readonly tab: ViewerTab;
+  /** The terminal's record, for its name and who opened it. */
+  readonly terminal?: Terminal | undefined;
   readonly selected: boolean;
   readonly described: string;
   readonly onSelect: () => void;
   readonly onPin: () => void;
   readonly onClose: () => void;
 }) {
-  const title = tab.kind === "file" ? splitPath(tab.path).name : tab.kind === "terminal" ? "终端" : "改动";
+  const title =
+    tab.kind === "file" ? splitPath(tab.path).name : tab.kind === "terminal" ? (terminal?.title ?? "终端") : "改动";
   return (
     <div
       role="tab"
+      // "终端" stays in the name so a test or a keystroke can find it whatever the title is.
+      aria-label={tab.kind === "terminal" ? `终端 ${title}` : undefined}
       tabIndex={selected ? 0 : -1}
       aria-selected={selected}
       title={described}
@@ -480,6 +488,11 @@ function ViewerTabButton({
         <FileDiff size={14} className="flex-none text-[var(--text-muted)]" />
       )}
       <span className={`min-w-0 flex-1 truncate ${tab.kind === "file" && tab.preview ? "italic" : ""}`}>{title}</span>
+      {tab.kind === "terminal" && terminal?.origin === "agent" ? (
+        <span className="shrink-0 rounded-[var(--r-pill)] bg-[color-mix(in_srgb,var(--tint)_12%,transparent)] px-1 text-[length:var(--fs-xs)] text-[var(--tint)]">
+          agent
+        </span>
+      ) : null}
       <button
         type="button"
         aria-label={`关闭 ${title}`}

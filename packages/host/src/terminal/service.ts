@@ -656,9 +656,10 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
           rows: input.rows,
           env: options.env,
         });
-      } catch (error) {
+      } catch {
         options.logger.warn({ code: "terminal_spawn_failed" }, "terminal failed to start");
-        throw new CommandError("terminal_spawn_failed", { cause: String(error) });
+        // No cause: the message may carry paths, and the code is all a caller needs.
+        throw new CommandError("terminal_spawn_failed");
       }
       const entry: Running = {
         terminal: {
@@ -739,6 +740,11 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
     write(caller, terminalId, data) {
       const entry = mustOwn(caller, terminalId);
       if (entry.exited) throw new CommandError("terminal_not_found");
+      // The schema's limit counts characters; a terminal's budget is bytes, so a page of CJK pastes
+      // would otherwise go through twice as large as allowed (SPEC-0009, "接口与数据").
+      if (Buffer.byteLength(data, "utf8") > AGENT_WRITE_MAX) {
+        throw new CommandError("terminal_write_too_large");
+      }
       entry.pty.write(data);
     },
 

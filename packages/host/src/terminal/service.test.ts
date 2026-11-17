@@ -291,6 +291,16 @@ describe("attach, write and resize", () => {
   });
 });
 
+describe("what the window may send", () => {
+  it("counts a paste in bytes, not characters", () => {
+    const { service } = harness();
+    const terminal = openIn(service);
+    // 2000 CJK characters are under the schema's 64 000 characters but three times over 4 KiB.
+    expect(codeOf(() => service.write(CALLER, terminal.id, "中".repeat(2000)))).toBe("terminal_write_too_large");
+    expect(() => service.write(CALLER, terminal.id, "ok")).not.toThrow();
+  });
+});
+
 describe("output and exit", () => {
   it("sends output to the connection and keeps it for replay", () => {
     const { service, clock, sent, spawned } = harness();

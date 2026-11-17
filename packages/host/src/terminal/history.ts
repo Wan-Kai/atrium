@@ -75,13 +75,30 @@ export function createHistory(limits: { lines?: number; bytes?: number } = {}): 
       chunks.push(clean);
       lines += lineBreaks(clean);
       bytes += Buffer.byteLength(clean, "utf8");
-      // Evict whole chunks while the caps are exceeded; one huge chunk may leave a little over,
-      // so the last chunk is never dropped for being large.
+      // Evict whole chunks while the caps are exceeded; the newest chunk is then trimmed from the
+      // front, so one huge write cannot leave the history over its caps (SPEC-0009, "历史与重放").
       while (chunks.length > 1 && (lines > maxLines || bytes > maxBytes)) {
         const dropped = chunks.shift();
         if (dropped === undefined) break;
         lines -= lineBreaks(dropped);
         bytes -= Buffer.byteLength(dropped, "utf8");
+      }
+      if (chunks.length === 1 && (lines > maxLines || bytes > maxBytes)) {
+        const whole = chunks[0] ?? "";
+        let cut = 0;
+        let keptLines = lines;
+        let keptBytes = bytes;
+        // Drop characters from the front, one code point at a time, until it fits.
+        for (const character of whole) {
+          if (keptLines <= maxLines && keptBytes <= maxBytes) break;
+          cut += character.length;
+          keptLines -= character === "\n" ? 1 : 0;
+          keptBytes -= Buffer.byteLength(character, "utf8");
+        }
+        const kept = whole.slice(cut);
+        chunks[0] = kept;
+        lines = keptLines;
+        bytes = keptBytes;
       }
     },
     text() {

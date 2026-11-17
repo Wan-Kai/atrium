@@ -38,10 +38,19 @@ describe("createHistory", () => {
     expect(history.text()).toBe("efghijkl");
   });
 
-  it("keeps a single chunk larger than the cap in full", () => {
-    const history = createHistory({ lines: 1, bytes: 4 });
+  it("trims one chunk larger than the cap from the front, keeping whole code points", () => {
+    const history = createHistory({ lines: 100, bytes: 4 });
     history.push("0123456789");
-    expect(history.text()).toBe("0123456789");
+    expect(history.text()).toBe("6789");
+
+    const lines = createHistory({ lines: 2, bytes: 1024 });
+    lines.push("one\ntwo\nthree\n");
+    expect(lines.text()).toBe("two\nthree\n");
+
+    const cjk = createHistory({ lines: 100, bytes: 6 });
+    cjk.push("中文一");
+    expect(cjk.text()).toBe("文一");
+    expect(cjk.text()).not.toContain("\uFFFD");
   });
 
   it("does not cut a code point when evicting", () => {

@@ -29,6 +29,8 @@ export function TerminalPane({
   readonly onRestart?: (() => void) | undefined;
 }) {
   const host = useRef<HTMLDivElement>(null);
+  /** The screen, for the header's clear button; null until the pane is mounted. */
+  const screenRef = useRef<XTerm | null>(null);
   const [missing, setMissing] = useState(false);
   const terminal = useStore(client.terminals, (state) => state.terminals.find((one) => one.id === terminalId));
   const ended = terminal?.state === "exited";
@@ -58,6 +60,7 @@ export function TerminalPane({
         white: "#d6d9de",
       },
     });
+    screenRef.current = screen;
     const fit = new FitAddon();
     screen.loadAddon(fit);
     screen.open(element);
@@ -138,12 +141,27 @@ export function TerminalPane({
       stopResize.dispose();
       stopInput.dispose();
       stopOutput();
+      screenRef.current = null;
       screen.dispose();
     };
   }, [client, terminalId]);
 
   return (
     <div className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-[var(--term)]">
+      <div className="flex shrink-0 items-center gap-2 border-b border-white/8 px-3 py-1 text-[length:var(--fs-xs)] text-[var(--term-dim)]">
+        <span className="min-w-0 truncate font-[family-name:var(--font-mono)]" title={terminal?.cwd}>
+          {terminal?.cwd ?? ""}
+        </span>
+        <span className="shrink-0">{terminal === undefined ? "" : `${terminal.cols}×${terminal.rows}`}</span>
+        <span className="flex-1" />
+        <button
+          type="button"
+          className="shrink-0 rounded-[var(--r-sm)] px-1.5 py-0.5 hover:bg-white/10 hover:text-[var(--term-text)]"
+          onClick={() => screenRef.current?.clear()}
+        >
+          清屏
+        </button>
+      </div>
       <div ref={host} className="min-h-0 flex-1 px-3 py-2" />
       {missing || ended ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[color-mix(in_srgb,var(--term)_92%,transparent)] text-[length:var(--fs-sm)] text-[var(--term-text)]">

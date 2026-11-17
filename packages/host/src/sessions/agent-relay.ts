@@ -260,6 +260,66 @@ export interface AgentRelay {
  *
  * @sideEffects none
  */
+/**
+ * The channel's code for a terminal refusal, if it is one.
+ *
+ * @remarks
+ * Listed one by one rather than cast: the channel's codes are the contract, and a new terminal
+ * error must be added here on purpose (SPEC-0009, "agent 操作终端").
+ *
+ * @sideEffects none
+ * @param code - The protocol error code.
+ * @returns It, when the channel has a word for it; otherwise `null`.
+ */
+function terminalCode(code: string): AgentErrorCode | null {
+  switch (code) {
+    case "terminal_not_found":
+    case "terminal_not_owner":
+    case "terminal_limit":
+    case "terminal_cwd_invalid":
+    case "terminal_spawn_failed":
+    case "terminal_write_too_large":
+    case "terminal_write_too_fast":
+    case "terminal_has_process":
+      return code;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Says why a call failed, in the channel's terms.
+ *
+ * @remarks
+ * A terminal refusal is a normal answer, not a crash: the model must tell "not yours" from "gone"
+ * from "too fast" to recover (SPEC-0009, "agent 操作终端"). Anything else is logged and answered
+ * generically, as before.
+ *
+ * @sideEffects Logs an unexpected failure.
+ * @param error - What was thrown.
+ * @param op - The call, for the log.
+ * @param sessionId - Who asked, for the log.
+ * @param logger - The host's log.
+ * @returns The failure to answer with.
+ */
+function failureOf(error: unknown, op: string, sessionId: string, logger: Logger): AgentFailure {
+  if (error instanceof AgentFailure) return error;
+  if (error instanceof CommandError) {
+    const code = terminalCode(error.code);
+    if (code !== null) return new AgentFailure(code, error.params ?? {});
+  }
+  logger.error({ sessionId, op, err: error }, "agent call failed");
+  return new AgentFailure("agent_failed");
+}
+
+/**
+ * A call that failed, in the channel's terms (ADR-0013, point 9).
+ *
+ * @remarks
+ * The host never writes model-facing prose; the extension words the code.
+ *
+ * @sideEffects none
+ */
 class AgentFailure extends Error {
   /**
    * A failure with its code and parameters.
@@ -1902,11 +1962,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
           if (result === null) return;
           reply = { v: 1, id: request.id, ok: true, result };
         } catch (error) {
-          const failure =
-            error instanceof AgentFailure
-              ? error
-              : (host.logger.error({ sessionId, op: request.op, err: error }, "agent call failed"),
-                new AgentFailure("agent_failed"));
+          const failure = failureOf(error, request.op, sessionId, host.logger);
           reply = {
             v: 1,
             id: request.id,
