@@ -358,6 +358,7 @@ export { ScheduleId, ScheduleLast, ScheduleSummary, SchedulesUpdatedEvent } from
 export { VISUAL_FILE_MAX, VISUAL_MESSAGE_MAX, VisualChangedEvent, VisualPath, VisualSource } from "./visuals";
 export {
   TerminalAttachCommand,
+  TerminalListCommand,
   TerminalCloseCommand,
   TerminalOpenCommand,
   TerminalResizeCommand,

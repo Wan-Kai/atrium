@@ -29,6 +29,8 @@ export function TerminalPane({
   readonly onRestart?: (() => void) | undefined;
 }) {
   const host = useRef<HTMLDivElement>(null);
+  /** The screen, for the header's clear button; null until the pane is mounted. */
+  const screenRef = useRef<XTerm | null>(null);
   const [missing, setMissing] = useState(false);
   const terminal = useStore(client.terminals, (state) => state.terminals.find((one) => one.id === terminalId));
   const ended = terminal?.state === "exited";
@@ -58,6 +60,7 @@ export function TerminalPane({
         white: "#d6d9de",
       },
     });
+    screenRef.current = screen;
     const fit = new FitAddon();
     screen.loadAddon(fit);
     screen.open(element);
@@ -81,9 +84,18 @@ export function TerminalPane({
     requestAnimationFrame(refit);
     const observer = new ResizeObserver(refit);
     observer.observe(element);
-    // Taken before attaching so nothing the host sends between the two is lost.
-    const stopOutput = client.onTerminalOutput(terminalId, (data) => screen.write(data));
+    // The history comes after the subscription, so what arrives in between is held here and
+    // written after it: writing it first would show the same bytes twice, and a reply xterm gives
+    // while replaying would reach the shell as typing (SPEC-0009, "历史与重放").
+    let replaying = true;
+    const held: string[] = [];
+    const stopOutput = client.onTerminalOutput(terminalId, (data) => {
+      if (replaying) held.push(data);
+      else screen.write(data);
+    });
     const stopInput = screen.onData((data) => {
+      // Nothing typed while the screen is being replayed: the terminal is not there yet.
+      if (replaying) return;
       void client.writeTerminal(terminalId, data).catch(() => undefined);
     });
     const stopResize = screen.onResize(({ cols, rows }) => {
@@ -109,12 +121,16 @@ export function TerminalPane({
     void (async () => {
       try {
         const { terminal: attached, history } = await client.attachTerminal(terminalId);
-        screen.write(history);
         screen.resize(attached.cols, attached.rows);
-        // The attach answer can arrive before the pane has its final size.
-        requestAnimationFrame(() => {
-          refit();
-          screen.focus();
+        // Replay first, with the writer detached, and only then become live.
+        screen.write(history, () => {
+          replaying = false;
+          for (const chunk of held.splice(0)) screen.write(chunk);
+          // The attach answer can arrive before the pane has its final size.
+          requestAnimationFrame(() => {
+            refit();
+            screen.focus();
+          });
         });
       } catch {
         setMissing(true);
@@ -125,12 +141,27 @@ export function TerminalPane({
       stopResize.dispose();
       stopInput.dispose();
       stopOutput();
+      screenRef.current = null;
       screen.dispose();
     };
   }, [client, terminalId]);
 
   return (
     <div className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden bg-[var(--term)]">
+      <div className="flex shrink-0 items-center gap-2 border-b border-white/8 px-3 py-1 text-[length:var(--fs-xs)] text-[var(--term-dim)]">
+        <span className="min-w-0 truncate font-[family-name:var(--font-mono)]" title={terminal?.cwd}>
+          {terminal?.cwd ?? ""}
+        </span>
+        <span className="shrink-0">{terminal === undefined ? "" : `${terminal.cols}×${terminal.rows}`}</span>
+        <span className="flex-1" />
+        <button
+          type="button"
+          className="shrink-0 rounded-[var(--r-sm)] px-1.5 py-0.5 hover:bg-white/10 hover:text-[var(--term-text)]"
+          onClick={() => screenRef.current?.clear()}
+        >
+          清屏
+        </button>
+      </div>
       <div ref={host} className="min-h-0 flex-1 px-3 py-2" />
       {missing || ended ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-[color-mix(in_srgb,var(--term)_92%,transparent)] text-[length:var(--fs-sm)] text-[var(--term-text)]">

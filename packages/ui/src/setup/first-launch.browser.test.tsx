@@ -252,7 +252,7 @@ describe("First launch · when it shows", () => {
 
     await expect.element(screen.getByRole("button", { name: "设置" })).toBeVisible();
     await expect.element(screen.getByRole("heading", { level: 1 })).not.toBeInTheDocument();
-    expect(calls.filter((call) => !call.startsWith("watch"))).toStrictEqual(["loadSetup"]);
+    expect(calls.filter((call) => !call.startsWith("watch"))).toStrictEqual(["restoreTerminals", "loadSetup"]);
   });
 
   it("asks what first launch checks once connected, and again after reconnecting", async () => {
@@ -282,7 +282,7 @@ describe("First launch · when it shows", () => {
 
     await expect
       .poll(() => fake.calls.filter((call) => !call.startsWith("watch")))
-      .toStrictEqual(["loadSetup", "loadSetup"]);
+      .toStrictEqual(["restoreTerminals", "loadSetup", "loadSetup"]);
   });
 
   it("shows the workbench while setup is done and pi is ready, or while the setup is not read yet", async () => {
@@ -314,6 +314,7 @@ describe("First launch · when it shows", () => {
     expect(calls.filter((call) => !call.startsWith("watch"))).toStrictEqual([
       "loadSetup",
       'setPreferences {"setupDone":true}',
+      "restoreTerminals",
     ]);
     expect(index.getState().preferences.setupDone).toBe(true);
   });

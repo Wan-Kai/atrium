@@ -287,6 +287,18 @@ export function taskText(delivery: Extract<Delivery, { kind: "task" }>): string 
 
 /** What the model is told for each error code (SPEC-0002, "错误码"). */
 const ERRORS: Readonly<Record<AgentErrorCode, (params: Readonly<Record<string, unknown>>) => string>> = {
+  terminal_not_found: () =>
+    "That terminal is gone: it was closed, or the host restarted. Open another with terminal_open.",
+  terminal_not_owner: () =>
+    "That terminal is not yours: it belongs to the user or to another session. You can only read and drive the ones you opened.",
+  terminal_limit: () =>
+    "That container already has as many terminals open as it allows. Close one with terminal_close first.",
+  terminal_cwd_invalid: () => "That container has no directory to open a terminal in.",
+  terminal_spawn_failed: () => "The shell would not start. Nothing ran.",
+  terminal_write_too_large: () => "That text is larger than a terminal write accepts (4 KiB). Type less at a time.",
+  terminal_write_too_fast: () => "Too many writes in a second. Wait a moment, then type again.",
+  terminal_has_process: () =>
+    "Something is still running in that terminal; the user has to agree to closing it. Leave it open, or ask them.",
   agent_limit: (params) =>
     `You already have 6 sub-agents that have not finished${Array.isArray(params["children"]) ? ` (${params["children"].map(String).join(", ")})` : ""}. Wait for one to finish, or stop one with agent_stop.`,
   agent_depth_limit: () => "Sub-agents this deep cannot start sub-agents of their own.",

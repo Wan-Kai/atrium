@@ -1326,6 +1326,20 @@ export const OpenTaskSessionCommand = z.strictObject({
 });
 export type OpenTaskSessionCommand = z.infer<typeof OpenTaskSessionCommand>;
 
+/**
+ * Lists the terminals this client may still show.
+ *
+ * @remarks
+ * A window that reloaded or reconnected has lost its tabs; the PTYs are still running, and this is
+ * how it finds them again (SPEC-0009, "生命周期"). It answers the client's own terminals and the
+ * ones agents opened, not another window's.
+ */
+export const TerminalListCommand = z.strictObject({
+  type: z.literal("terminal_list"),
+  ...commandFields,
+});
+export type TerminalListCommand = z.infer<typeof TerminalListCommand>;
+
 /** Opens a terminal in a container; the host picks the directory from the container (SPEC-0009). */
 export const TerminalOpenCommand = z.strictObject({
   type: z.literal("terminal_open"),
@@ -1505,6 +1519,7 @@ export const Command = z.discriminatedUnion("type", [
   RunScheduleNowCommand,
   DeleteScheduleCommand,
   EditScheduleCommand,
+  TerminalListCommand,
   TerminalOpenCommand,
   TerminalAttachCommand,
   TerminalWriteCommand,
@@ -1700,6 +1715,7 @@ export const CommandResult = {
   run_schedule_now: z.strictObject({ taskId: TaskId }),
   delete_schedule: z.strictObject({}),
   edit_schedule: z.strictObject({ taskId: TaskId }),
+  terminal_list: z.strictObject({ terminals: z.array(Terminal) }),
   terminal_open: z.strictObject({ terminal: Terminal }),
   /** `history` is what the host still holds, up to the caps; it is replayed before new output. */
   terminal_attach: z.strictObject({ terminal: Terminal, history: z.string() }),

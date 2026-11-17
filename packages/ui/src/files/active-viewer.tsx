@@ -1,4 +1,5 @@
 import { type AtriumClient, isDirectionId } from "@atrium/client";
+import { useStore } from "zustand";
 import type { StoreApi } from "zustand";
 import { inDirectionVisuals, isDirectionVisual } from "../study/archive";
 import { type WorkspaceViews, closeViewer, openDiff, openTerminalTab } from "../state/workspace-views";
@@ -40,6 +41,8 @@ export function ActiveViewer({
   readonly openInBrowser?: ((path: string) => void) | undefined;
 }) {
   const direction = isDirectionId(workspaceId);
+  // Read before any early return: hooks keep the same order on every render.
+  const generation = useStore(client.terminals, (state) => state.generation);
   const mode = useDiffMode(client, views, direction ? null : workspaceId);
   const shown = useShownDiff(client, direction ? "" : workspaceId, mode);
   if (viewerKey === "diff") return <DiffViewer client={client} workspaceId={workspaceId} views={views} mode={mode} />;
@@ -47,6 +50,8 @@ export function ActiveViewer({
     const terminalId = viewerKey.slice("terminal:".length);
     return (
       <TerminalPane
+        // A new connection mounts the pane again, which attaches it to the new socket.
+        key={generation}
         client={client}
         terminalId={terminalId}
         onRestart={() => {

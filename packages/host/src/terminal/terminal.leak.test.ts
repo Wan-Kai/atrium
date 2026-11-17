@@ -27,11 +27,14 @@ function quietLogger(): Logger {
 function stillPty() {
   let onData: ((data: string) => void) | null = null;
   let onExit: ((event: { exitCode: number }) => void) | null = null;
+  let kills = 0;
   const process: PtyProcess = {
     pid: 4242,
     write: () => undefined,
     resize: () => undefined,
-    kill: () => undefined,
+    kill: () => {
+      kills += 1;
+    },
     onData: (listener) => {
       onData = listener;
     },
@@ -39,7 +42,12 @@ function stillPty() {
       onExit = listener;
     },
   };
-  return { process, output: (data: string) => onData?.(data), exit: () => onExit?.({ exitCode: 0 }) };
+  return {
+    process,
+    output: (data: string) => onData?.(data),
+    exit: () => onExit?.({ exitCode: 0 }),
+    kills: () => kills,
+  };
 }
 
 /**
@@ -70,6 +78,8 @@ describe("terminals leave nothing behind", () => {
       resources,
       logger: quietLogger(),
       childrenOf: async () => [],
+      descendantsOf: async () => [],
+      signal: () => undefined,
     });
 
     for (let i = 0; i < 50; i += 1) {
@@ -86,6 +96,8 @@ describe("terminals leave nothing behind", () => {
       void service.agentType(SESSION, terminal.id, "x");
       clock.advance(2000);
       const closing = service.close({ connectionId: "conn-1", clientId: SESSION }, terminal.id, true);
+      // The close reads the process tree before signalling, so exit only once that happened.
+      await vi.waitFor(() => expect(ptys[i]?.kills()).toBeGreaterThan(0));
       ptys[i]?.exit();
       await closing;
       clock.advance(5000);

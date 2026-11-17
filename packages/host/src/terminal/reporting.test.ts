@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pasteAfter, reportedState } from "./reporting";
+import { pasteAfter, reportedState, splitComplete } from "./reporting";
 
 describe("reportedState", () => {
   it("reads the state and the program that reported it", () => {
@@ -39,5 +39,53 @@ describe("pasteAfter", () => {
   it("keeps the previous state when the chunk says nothing about it", () => {
     expect(pasteAfter("just output", true)).toBe(true);
     expect(pasteAfter("just output", false)).toBe(false);
+  });
+});
+
+describe("splitComplete", () => {
+  it("holds an escape sequence the PTY split, and joins it with the rest", () => {
+    const first = splitComplete("\u001b[?20");
+    expect(first.complete).toBe("");
+    expect(first.rest).toBe("\u001b[?20");
+    const second = splitComplete(first.rest + "04h");
+    expect(second.complete).toBe("\u001b[?2004h");
+    expect(second.rest).toBe("");
+  });
+
+  it("holds an unfinished OSC until its terminator arrives", () => {
+    expect(splitComplete("\u001b]7501;state=blo").rest).toBe("\u001b]7501;state=blo");
+    expect(splitComplete("\u001b]7501;state=blocked\u0007").complete).toBe("\u001b]7501;state=blocked\u0007");
+  });
+
+  it("lets ordinary text and finished sequences through at once", () => {
+    expect(splitComplete("hello")).toStrictEqual({ complete: "hello", rest: "" });
+    expect(splitComplete("\u001b[?2004h")).toStrictEqual({ complete: "\u001b[?2004h", rest: "" });
+  });
+
+  it("treats an over-long tail as text, so a lone ESC cannot stall the stream", () => {
+    const long = `\u001b[${"1".repeat(80)}`;
+    expect(splitComplete(long)).toStrictEqual({ complete: long, rest: "" });
+  });
+});
+
+describe("splitComplete at the edges", () => {
+  it("holds a lone ESC until the character after it arrives", () => {
+    expect(splitComplete("text\u001b")).toStrictEqual({ complete: "text", rest: "\u001b" });
+    expect(splitComplete("text\u001b[")).toStrictEqual({ complete: "text", rest: "\u001b[" });
+    expect(splitComplete("\u001b[1m")).toStrictEqual({ complete: "\u001b[1m", rest: "" });
+  });
+
+  it("lets an ESC and one ordinary character through together", () => {
+    expect(splitComplete("\u001bA")).toStrictEqual({ complete: "\u001bA", rest: "" });
+  });
+
+  it("looks only at the last escape, so an earlier finished one does not hold text back", () => {
+    expect(splitComplete("\u001b[0m\u001b[?20")).toStrictEqual({ complete: "\u001b[0m", rest: "\u001b[?20" });
+  });
+
+  it("treats a finished OSC as complete, and holds one that only looks finished", () => {
+    expect(splitComplete("\u001b]0;title\u0007done")).toStrictEqual({ complete: "\u001b]0;title\u0007done", rest: "" });
+    expect(splitComplete("\u001b]0;title\u001b\\")).toStrictEqual({ complete: "\u001b]0;title\u001b\\", rest: "" });
+    expect(splitComplete("\u001b]0;tit\u001b")).toStrictEqual({ complete: "\u001b]0;tit", rest: "\u001b" });
   });
 });

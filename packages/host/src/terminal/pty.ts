@@ -199,6 +199,18 @@ export const spawnPty: PtySpawn = (input) => {
     pid: child.pid,
     write: (data) => child.write(data),
     resize: (cols, rows) => child.resize(cols, rows),
+    /**
+     * Signals the terminal's process.
+     *
+     * @remarks
+     * node-pty's own `kill` is `process.kill(pid)`: the shell takes the signal, and whatever it
+     * started may outlive it. Signalling the process group was tried and reverted on 2026-11-16:
+     * under the test runner the child can share the runner's group, so the group signal took the
+     * runner down. Killing the tree needs a verified group id, which is not here yet.
+     *
+     * @sideEffects Signals the shell.
+     * @param signal - Which signal.
+     */
     kill: (signal) => child.kill(signal),
     onData: (listener) => {
       child.onData(listener);

@@ -1,7 +1,7 @@
 import { CommandError, type Terminal } from "@atrium/protocol";
 import { FakeClock } from "@atrium/testkit";
 import { ResourceTracker } from "../platform/resources";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Logger } from "../platform/logger";
 import type { PtySpawnInput, PtyProcess } from "./pty";
 import { type TerminalEvent, createTerminalService } from "./service";
@@ -58,12 +58,13 @@ function fakePty(input: PtySpawnInput) {
 }
 
 /** The service with fakes around it; `children` decides what `ps` answers. */
-function harness(options: { readonly childrenFails?: boolean } = {}) {
+function harness(options: { readonly childrenFails?: boolean; readonly descendants?: readonly number[] } = {}) {
   const clock = new FakeClock();
   const resources = new ResourceTracker();
   const sent: Array<[string, TerminalEvent]> = [];
   const spawned: Array<ReturnType<typeof fakePty>> = [];
   const warnings: string[] = [];
+  const signals: string[] = [];
   const dirs = new Map<string, string>([[W1, "/work/a"]]);
   const service = createTerminalService({
     shell: "/bin/zsh",
@@ -84,9 +85,16 @@ function harness(options: { readonly childrenFails?: boolean } = {}) {
       if (options.childrenFails === true) throw new Error("ps: no such process");
       return [4300];
     },
+    descendantsOf: async () => options.descendants ?? [],
+    signal: (pid, name) => signals.push(`${String(pid)}:${name}`),
     killGraceMs: 3000,
   });
-  return { service, clock, sent, spawned, warnings, dirs };
+  return { service, clock, sent, spawned, warnings, dirs, resources, signals };
+}
+
+/** What each `terminal_output` event carried, in order. */
+function outputTexts(sent: Array<[string, TerminalEvent]>): string[] {
+  return sent.flatMap(([, event]) => (event.type === "terminal_output" ? [event.data] : []));
 }
 
 /** The last event of a type, for assertions. */
@@ -189,6 +197,8 @@ describe("open", () => {
       resources: new ResourceTracker(),
       logger: quietLogger(),
       childrenOf: async () => [],
+      descendantsOf: async () => [],
+      signal: () => undefined,
     });
     expect(codeOf(() => service.open({ caller: CALLER, containerId: W1, cols: 80, rows: 24 }))).toBe(
       "terminal_spawn_failed",
@@ -220,15 +230,35 @@ describe("titles and delivery", () => {
   });
 
   it("sends a rebuilt tab's output to the connection it came back on", () => {
-    const { service, sent, spawned } = harness();
+    const { service, clock, sent, spawned } = harness();
     const terminal = openIn(service);
     // The page reloaded: same client, a new socket.
     service.attach({ connectionId: "conn-9", clientId: CLIENT }, terminal.id);
     spawned[0]?.output("after reload");
+    clock.advance(20);
     expect(sent.at(-1)).toStrictEqual([
       "conn-9",
       { type: "terminal_output", terminalId: terminal.id, data: "after reload" },
     ]);
+  });
+
+  it("paces output instead of letting a burst fill the connection", () => {
+    const { service, clock, sent, spawned } = harness();
+    openIn(service);
+    // 100 KiB in one write: the first flush is capped, the rest follows.
+    spawned[0]?.output("a".repeat(100 * 1024));
+    clock.advance(20);
+    expect(outputTexts(sent).map((text) => text.length)).toStrictEqual([64 * 1024]);
+    clock.advance(20);
+    expect(outputTexts(sent).map((text) => text.length)).toStrictEqual([64 * 1024, 100 * 1024 - 64 * 1024]);
+  });
+
+  it("drops the oldest output past the queue cap, and says so on the screen", () => {
+    const { service, clock, sent, spawned } = harness();
+    openIn(service);
+    spawned[0]?.output("x".repeat(3 * 1024 * 1024));
+    clock.advance(20);
+    expect(outputTexts(sent).join("")).toContain("[output dropped");
   });
 
   it("stops listing a terminal once it ended", () => {
@@ -266,16 +296,27 @@ describe("attach, write and resize", () => {
   });
 });
 
+describe("what the window may send", () => {
+  it("counts a paste in bytes, not characters", () => {
+    const { service } = harness();
+    const terminal = openIn(service);
+    // 2000 CJK characters are under the schema's 64 000 characters but three times over 4 KiB.
+    expect(codeOf(() => service.write(CALLER, terminal.id, "中".repeat(2000)))).toBe("terminal_write_too_large");
+    expect(() => service.write(CALLER, terminal.id, "ok")).not.toThrow();
+  });
+});
+
 describe("output and exit", () => {
   it("sends output to the connection and keeps it for replay", () => {
-    const { service, sent, spawned } = harness();
+    const { service, clock, sent, spawned } = harness();
     const terminal = openIn(service);
     spawned[0]?.output("hello\r\n");
+    clock.advance(20);
     expect(sent.at(-1)).toStrictEqual([CONN, { type: "terminal_output", terminalId: terminal.id, data: "hello\r\n" }]);
     expect(service.attach(CALLER, terminal.id).history).toBe("hello\r\n");
   });
 
-  it("marks the terminal ended and then releases it", () => {
+  it("keeps the record after the program ends, so its screen and code can still be read", async () => {
     const { service, sent, spawned } = harness();
     const terminal = openIn(service);
     spawned[0]?.exit(0);
@@ -284,8 +325,11 @@ describe("output and exit", () => {
       terminalId: terminal.id,
       exitCode: 0,
     });
-    expect(lastEvent(sent, "terminal_closed")).toStrictEqual({ type: "terminal_closed", terminalId: terminal.id });
+    // Not closed yet: that is what closing the tab does.
+    expect(lastEvent(sent, "terminal_closed")).toBeUndefined();
     expect(service.openTerminals()).toStrictEqual([]);
+    await service.close(CALLER, terminal.id, true);
+    expect(lastEvent(sent, "terminal_closed")).toStrictEqual({ type: "terminal_closed", terminalId: terminal.id });
   });
 });
 
@@ -294,7 +338,8 @@ describe("close", () => {
     const { service, sent, spawned } = harness();
     const terminal = openIn(service);
     const closing = service.close(CALLER, terminal.id, true);
-    expect(spawned[0]?.calls).toContain("kill:SIGTERM");
+    // The tree is read before signalling, so the first signal follows an await.
+    await vi.waitFor(() => expect(spawned[0]?.calls).toContain("kill:SIGTERM"));
     spawned[0]?.exit(143);
     await closing;
     expect(lastEvent(sent, "terminal_closed")).toStrictEqual({ type: "terminal_closed", terminalId: terminal.id });
@@ -304,6 +349,7 @@ describe("close", () => {
     const { service, clock, spawned } = harness();
     const terminal = openIn(service);
     const closing = service.close(CALLER, terminal.id, true);
+    await vi.waitFor(() => expect(spawned[0]?.calls).toContain("kill:SIGTERM"));
     clock.advance(3000);
     expect(spawned[0]?.calls).toContain("kill:SIGKILL");
     clock.advance(1000);
@@ -468,6 +514,16 @@ describe("what an agent may do", () => {
     expect(answered).toBe(true);
   });
 
+  it("sees a bracketed-paste change the PTY split across two reads", () => {
+    const { service, spawned } = harness();
+    const terminal = agentOpen(service);
+    spawned[0]?.output("\u001b[?20");
+    spawned[0]?.output("04h");
+    const typing = service.agentType(SESSION, terminal.id, "one\ntwo");
+    expect(spawned[0]?.calls.at(-1)).toBe("write:\u001b[200~one\ntwo\u001b[201~");
+    void typing;
+  });
+
   it("presses named keys, and refuses anything outside the table", async () => {
     const { service, clock, spawned } = harness();
     const terminal = agentOpen(service);
@@ -508,6 +564,23 @@ describe("what an agent may do", () => {
     spawned[0]?.exit(0);
     clock.advance(200);
     await expect(waiting).resolves.toStrictEqual({ quiet: false, exited: true, exitCode: 0 });
+  });
+
+  it("does not call a prompt that was already there quiet while a command starts", async () => {
+    const { service, clock, spawned } = harness();
+    const terminal = agentOpen(service);
+    // The shell's prompt, long before the wait: it says nothing about the command just submitted.
+    spawned[0]?.output("$ ");
+    const waiting = service.agentWait(SESSION, terminal.id, { quietMs: 500, timeoutMs: 3000 });
+    let answered = false;
+    void waiting.then(() => {
+      answered = true;
+      return answered;
+    });
+    clock.advance(1200);
+    expect(answered).toBe(false);
+    clock.advance(3000);
+    await expect(waiting).resolves.toStrictEqual({ quiet: false, exited: false, exitCode: null });
   });
 
   it("does not call a program that has not printed yet quiet", async () => {
@@ -551,9 +624,12 @@ describe("what an agent may do", () => {
   });
 
   it("closes only what it opened", async () => {
-    const { service, spawned } = harness();
+    const { service, clock, spawned } = harness();
     const terminal = agentOpen(service);
-    await service.agentClose(SESSION, terminal.id);
+    const closing = service.agentClose(SESSION, terminal.id);
+    await vi.waitFor(() => expect(spawned[0]?.calls).toContain("kill:SIGTERM"));
+    clock.advance(4000);
+    await closing;
     expect(spawned[0]?.calls).toContain("kill:SIGTERM");
     const mine = openIn(service);
     await expect(service.agentClose(SESSION, mine.id)).rejects.toMatchObject({ code: "terminal_not_owner" });
@@ -564,8 +640,8 @@ describe("edges the limits and closes turn on", () => {
   it("clamps the quiet window to what the protocol allows", async () => {
     const { service, clock, spawned } = harness();
     const terminal = agentOpen(service);
-    spawned[0]?.output("x");
     const waiting = service.agentWait(SESSION, terminal.id, { quietMs: 1, timeoutMs: 5000 });
+    spawned[0]?.output("x");
     let answered = false;
     void waiting.then(() => {
       answered = true;
@@ -598,10 +674,16 @@ describe("edges the limits and closes turn on", () => {
   });
 
   it("closes everything when the host goes away", async () => {
-    const { service, spawned } = harness();
+    const { service, clock, spawned } = harness();
     openIn(service);
     agentOpen(service);
-    await service.closeAll();
+    const closing = service.closeAll();
+    // Each close reads the tree before signalling, so both signals land after an await.
+    await vi.waitFor(() =>
+      expect(spawned.map((pty) => pty.calls.includes("kill:SIGTERM"))).toStrictEqual([true, true]),
+    );
+    clock.advance(4000);
+    await closing;
     expect(service.openTerminals()).toStrictEqual([]);
     expect(spawned.map((pty) => pty.calls.filter((call) => call === "kill:SIGTERM").length)).toStrictEqual([1, 1]);
   });
@@ -637,8 +719,8 @@ describe("what a caller may ask for", () => {
   it("keeps the quiet floor below the timeout, so a short timeout still settles", async () => {
     const { service, clock, spawned } = harness();
     const terminal = agentOpen(service);
-    spawned[0]?.output("x");
     const waiting = service.agentWait(SESSION, terminal.id, { quietMs: 5000, timeoutMs: 100 });
+    spawned[0]?.output("x");
     // The timeout is raised to the quiet window: quiet wins once the screen has been still that long.
     clock.advance(5100);
     await expect(waiting).resolves.toMatchObject({ quiet: true });
@@ -648,9 +730,108 @@ describe("what a caller may ask for", () => {
     const { service, spawned } = harness();
     const terminal = openIn(service);
     spawned[0]?.exit(0);
-    await expect(service.hasForegroundProcess(terminal.id)).rejects.toMatchObject({
-      code: "terminal_not_found",
+    await expect(service.hasForegroundProcess(terminal.id)).resolves.toBe(false);
+  });
+});
+
+describe("what a window may list after a reload", () => {
+  it("gives back this client's terminals and the agents', not another window's", () => {
+    const { service } = harness();
+    const mine = openIn(service);
+    const other = openIn(service, OTHER_CALLER);
+    const byAgent = agentOpen(service);
+    const listed = service.list(CALLER).map((terminal) => terminal.id);
+    expect(listed).toStrictEqual([mine.id, byAgent.id]);
+    expect(listed).not.toContain(other.id);
+  });
+
+  it("leaves out a terminal whose process ended", () => {
+    const { service, spawned } = harness();
+    const mine = openIn(service);
+    spawned[0]?.exit(0);
+    expect(service.list(CALLER)).toStrictEqual([]);
+    expect(mine.id).not.toBe("");
+  });
+});
+
+describe("the small print", () => {
+  it("cuts a long title to forty characters", () => {
+    const { service, sent } = harness();
+    service.open({ caller: CALLER, containerId: W1, cols: 80, rows: 24, title: "t".repeat(60) });
+    const opened = sent.filter(([, event]) => event.type === "terminal_opened").at(-1);
+    expect(opened?.[1]).toMatchObject({ terminal: { title: "t".repeat(40) } });
+  });
+
+  it("clamps the quiet window at its top", async () => {
+    const { service, clock, spawned } = harness();
+    const terminal = agentOpen(service);
+    const waiting = service.agentWait(SESSION, terminal.id, { quietMs: 999_999, timeoutMs: 20_000 });
+    spawned[0]?.output("x");
+    clock.advance(10_500);
+    await expect(waiting).resolves.toMatchObject({ quiet: true });
+  });
+
+  it("keeps a title that is already short, and a command's own name", () => {
+    const { service, sent } = harness();
+    service.open({ caller: CALLER, containerId: W1, cols: 80, rows: 24, title: "dev", command: "npm run dev" });
+    service.open({ caller: CALLER, containerId: W1, cols: 80, rows: 24, command: "top -b" });
+    const opened = sent.filter(([, event]) => event.type === "terminal_opened");
+    expect(opened.at(-2)?.[1]).toMatchObject({ terminal: { title: "dev" } });
+    expect(opened.at(-1)?.[1]).toMatchObject({ terminal: { title: "top" } });
+  });
+});
+
+describe("closing reaches what the shell started", () => {
+  it("signals the shell's descendants, then them again with SIGKILL", async () => {
+    const { service, clock, signals, spawned } = harness({ descendants: [4300, 4301] });
+    const terminal = openIn(service);
+    const closing = service.close(CALLER, terminal.id, true);
+    await vi.waitFor(() => expect(signals).toStrictEqual(["4300:SIGTERM", "4301:SIGTERM"]));
+    // The shell's own kill goes through the PTY, which the fake records.
+    expect(spawned[0]?.calls).toContain("kill:SIGTERM");
+    clock.advance(3000);
+    expect(signals.slice(2)).toStrictEqual(["4300:SIGKILL", "4301:SIGKILL"]);
+    clock.advance(1000);
+    await closing;
+  });
+});
+
+describe("a stopped tool call stops the host's work", () => {
+  it("stops waiting when the call is aborted, and leaves no timer behind", async () => {
+    const { service, clock, spawned, resources } = harness();
+    const terminal = agentOpen(service);
+    const stopping = new AbortController();
+    let answered = false;
+    const waiting = service.agentWait(SESSION, terminal.id, {
+      quietMs: 5000,
+      timeoutMs: 20_000,
+      signal: stopping.signal,
     });
+    void waiting.then(() => {
+      answered = true;
+      return answered;
+    });
+    spawned[0]?.output("working");
+    clock.advance(300);
+    expect(answered).toBe(false);
+    stopping.abort();
+    clock.advance(200);
+    await expect(waiting).resolves.toStrictEqual({ quiet: false, exited: false, exitCode: null });
+    // The poll that would have run later found nothing to do; no timer is left counting.
+    clock.advance(30_000);
+    expect(resources.snapshot()["timer"]).toBe(0);
+  });
+
+  it("stops waiting for a settled screen when the call is aborted", async () => {
+    const { service, clock, resources } = harness();
+    const terminal = agentOpen(service);
+    const stopping = new AbortController();
+    const typing = service.agentType(SESSION, terminal.id, "x", true, stopping.signal);
+    stopping.abort();
+    clock.advance(200);
+    await expect(typing).resolves.toBe(false);
+    clock.advance(30_000);
+    expect(resources.snapshot()["timer"]).toBe(0);
   });
 });
 
@@ -660,7 +841,8 @@ describe("hasForegroundProcess", () => {
     const terminal = openIn(service);
     await expect(service.hasForegroundProcess(terminal.id)).resolves.toBe(true);
     spawned[0]?.exit(0);
-    await expect(service.hasForegroundProcess(terminal.id)).rejects.toMatchObject({ code: "terminal_not_found" });
+    // Its record stays until the tab closes, but nothing is running in it.
+    await expect(service.hasForegroundProcess(terminal.id)).resolves.toBe(false);
   });
 
   it("counts a failed query as something running", async () => {

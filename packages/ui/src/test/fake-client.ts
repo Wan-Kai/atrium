@@ -405,7 +405,8 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
   const diff = createStore<DiffView>(() => ({ target: null, status: "idle", files: [], tooLarge: false, error: null }));
   const modelLists = new Map<string | null, StoreApi<ModelListView>>();
   const views = new Map<string, StoreApi<SessionView>>();
-  const terminals = createStore<TerminalsView>(() => NO_TERMINALS);
+  /** The terminals the host reports, none unless a test gives it one (SPEC-0009). */
+  const terminals: StoreApi<TerminalsView> = createStore<TerminalsView>(() => NO_TERMINALS);
   /** The run control the host's snapshot of a session carries, when a test gives it one; idle otherwise. */
   const controls = new Map<string, Control>(Object.entries(answers.controls ?? {}));
   /** The sessions still without a pi; watching them brings no snapshot. */
@@ -679,6 +680,11 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       });
       return { workspaceId: id };
     },
+    // A reloaded window asks the host what still runs; the fake has no terminals (SPEC-0009).
+    async restoreTerminals() {
+      calls.push("restoreTerminals");
+    },
+
     async openSession(sessionId: string) {
       calls.push(`openSession ${sessionId}`);
       openTab(sessionId);
@@ -1243,7 +1249,6 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
     },
     installJob,
     plans,
-    terminals,
     async updatePi() {
       calls.push("updatePi");
       await answers.updatePi?.();
@@ -1284,6 +1289,7 @@ export function fakeClient(initial: Partial<Omit<IndexSnapshotEvent, "type">> = 
       });
       return {};
     },
+    terminals,
     // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a test double with the methods the UI uses.
   } as unknown as AtriumClient;
   return {

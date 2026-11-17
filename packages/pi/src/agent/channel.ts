@@ -56,6 +56,22 @@ export const AgentErrorCode = z.enum([
   "agent_question_open",
   "agent_text_too_long",
   "agent_bad_request",
+  /** The terminal named is gone, or was never this session's (SPEC-0009). */
+  "terminal_not_found",
+  /** The terminal was opened by someone else, or by the user. */
+  "terminal_not_owner",
+  /** The container already has as many terminals open as it allows. */
+  "terminal_limit",
+  /** The container has no directory to open a terminal in. */
+  "terminal_cwd_invalid",
+  /** The PTY would not start. */
+  "terminal_spawn_failed",
+  /** The text was larger than a terminal write accepts. */
+  "terminal_write_too_large",
+  /** The agent wrote faster than a terminal accepts. */
+  "terminal_write_too_fast",
+  /** Something is still running in it, so closing needs the user's agreement. */
+  "terminal_has_process",
   /** `ask_user` from a child the agent opened, which asks its parent instead (SPEC-0003). */
   "ask_user_unavailable",
   /** A study tool's ladder has fewer or more levels than allowed; `params` has `min`, `max`, `got` (SPEC-0008). */

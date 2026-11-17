@@ -531,6 +531,17 @@ export interface AtriumClient {
   readonly terminals: StoreApi<TerminalsView>;
   /** Opens a terminal in a container; the host picks the directory from the container. */
   openTerminal(containerId: ContainerId, cols: number, rows: number): Promise<CommandResult<"terminal_open">>;
+  /** The running terminals this window may still show, after a reload or a reconnect. */
+  listTerminals(): Promise<CommandResult<"terminal_list">>;
+  /**
+   * Rebuilds the terminal list after a reload.
+   *
+   * @remarks
+   * Tabs live in the window, so a reload loses them while the PTYs keep running; asking the host
+   * once gives them back (SPEC-0009, "生命周期"). Every connection also bumps the generation, so a
+   * pane attaches again on the new socket.
+   */
+  restoreTerminals(): Promise<void>;
   /** Attaches this connection to a terminal and returns what it printed so far. */
   attachTerminal(terminalId: TerminalId): Promise<CommandResult<"terminal_attach">>;
   /** Sends bytes to a terminal as if typed. */
@@ -1592,14 +1603,22 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
     if (message.type === "terminal_opened") {
       // Stryker disable next-line BooleanLiteral: every field is set, so merging equals replacing.
       terminals.setState(
-        { status: "ready", terminals: withTerminal(terminals.getState().terminals, message.terminal) },
+        {
+          status: "ready",
+          terminals: withTerminal(terminals.getState().terminals, message.terminal),
+          generation: terminals.getState().generation,
+        },
         true,
       );
       return;
     }
     if (message.type === "terminal_exited") {
       terminals.setState(
-        { status: "ready", terminals: withExit(terminals.getState().terminals, message.terminalId, message.exitCode) },
+        {
+          status: "ready",
+          terminals: withExit(terminals.getState().terminals, message.terminalId, message.exitCode),
+          generation: terminals.getState().generation,
+        },
         true,
       );
       return;
@@ -1609,6 +1628,7 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         {
           status: "ready",
           terminals: terminals.getState().terminals.filter((open) => open.id !== message.terminalId),
+          generation: terminals.getState().generation,
         },
         true,
       );
@@ -1737,6 +1757,8 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
         if (watchingSchedules) loadSchedules().catch(() => undefined);
         if (openedTask !== null) loadTask(openedTask).catch(() => undefined);
         resolveVisualsAgain().catch(() => undefined);
+        // A new socket: panes key themselves by this and attach again to the same PTYs.
+        terminals.setState((state) => ({ ...state, generation: state.generation + 1 }));
         // Fire and forget: the failure lands in the store.
         if (watchingRemote) void loadRemote();
         settle(connection.getState());
@@ -2142,10 +2164,22 @@ export function createAtriumClient(options: AtriumClientOptions): AtriumClient {
       if (live !== undefined) await request("watch_diff", { target });
     },
     terminals,
+    listTerminals: () => request("terminal_list", {}),
+    async restoreTerminals() {
+      const { terminals: running } = await request("terminal_list", {});
+      terminals.setState((state) => ({ status: "ready", terminals: running, generation: state.generation }));
+    },
     async openTerminal(containerId, cols, rows) {
       const { terminal } = await request("terminal_open", { containerId, cols, rows });
       // The `terminal_opened` event may already have added it; either way the list ends up with one copy.
-      terminals.setState({ status: "ready", terminals: withTerminal(terminals.getState().terminals, terminal) }, true);
+      terminals.setState(
+        {
+          status: "ready",
+          terminals: withTerminal(terminals.getState().terminals, terminal),
+          generation: terminals.getState().generation,
+        },
+        true,
+      );
       return { terminal };
     },
     attachTerminal: (terminalId) => request("terminal_attach", { terminalId }),

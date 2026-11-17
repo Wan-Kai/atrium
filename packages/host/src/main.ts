@@ -48,7 +48,7 @@ import { REMOTE_FILE } from "./remote/devices";
 import { loadIndexFile } from "./store/index-file";
 import { createAttachmentStore } from "./server/attachments";
 import { startWsServer } from "./server/ws-server";
-import { childPidsOf } from "./terminal/children";
+import { childPidsOf, descendantsOf } from "./terminal/children";
 import { spawnPty, terminalEnv } from "./terminal/pty";
 import { type TerminalService, createTerminalService } from "./terminal/service";
 import {
@@ -510,8 +510,9 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
         return { terminalId: terminal.id, title: terminal.title, directory: terminal.cwd };
       },
       read: (sessionId, terminalId, lines) => requireTerminals().agentRead(sessionId, terminalId, lines),
-      type: (sessionId, terminalId, text, submit) => requireTerminals().agentType(sessionId, terminalId, text, submit),
-      key: (sessionId, terminalId, key) => requireTerminals().agentKey(sessionId, terminalId, key),
+      type: (sessionId, terminalId, text, submit, signal) =>
+        requireTerminals().agentType(sessionId, terminalId, text, submit, signal),
+      key: (sessionId, terminalId, key, signal) => requireTerminals().agentKey(sessionId, terminalId, key, signal),
       wait: (sessionId, terminalId, waitOptions) => requireTerminals().agentWait(sessionId, terminalId, waitOptions),
       close: (sessionId, terminalId) => requireTerminals().agentClose(sessionId, terminalId),
     },
@@ -657,6 +658,10 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     resources,
     logger,
     childrenOf: (pid) => childPidsOf(pid),
+    descendantsOf: (pid) => descendantsOf(pid),
+    signal: (pid, name) => {
+      process.kill(pid, name);
+    },
   });
   terminalBridge.current = terminals;
   const translations = createReplyTranslations({
@@ -1245,6 +1250,8 @@ export async function startHost(config: HostConfig): Promise<RunningHost> {
     await toolbox.close();
     await remote.close();
     await server.close();
+    // Terminals last: their tabs are gone with the server, and their processes get the grace period.
+    await terminals.closeAll();
     await translations.close();
     // Naming may be waiting on a shared cold model query: abort both before awaiting either.
     const namingClosed = namer.close();

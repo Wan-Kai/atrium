@@ -72,7 +72,7 @@ test("@leak opening a child conversation and archiving it from its parent's caps
     await expect(tabs).toHaveText(["一"], { timeout: 30_000 });
     /** Opens an empty child from the tab bar's menu, goes back up, and archives it from the capsule. */
     const round = async () => {
-      await window.getByRole("button", { name: "新建（⌘T 为新会话）" }).click();
+      await window.getByRole("button", { name: "新建", exact: true }).click();
       await window.getByRole("menuitem", { name: /子对话/ }).click();
       await window.getByRole("dialog", { name: "开子对话" }).getByRole("button", { name: "开子对话" }).click();
       await expect(tabs).toHaveText(["一", "子对话 1"], { timeout: 30_000 });

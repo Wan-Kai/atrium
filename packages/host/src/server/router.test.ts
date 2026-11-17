@@ -499,6 +499,10 @@ function setUp(answering: IndexCommands["answering"] = () => undefined) {
       },
     },
     terminals: {
+      list: (caller) => {
+        calls.push(["listTerminals", caller.clientId]);
+        return [];
+      },
       open: (input) => {
         calls.push(["openTerminal", input.caller.clientId, input.containerId]);
         return {

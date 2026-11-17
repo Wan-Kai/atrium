@@ -13,7 +13,7 @@ import { type Clock, trackedTimeout } from "../platform/clock";
 import type { Logger } from "../platform/logger";
 import type { ResourceTracker } from "../platform/resources";
 import { createHistory, type TerminalHistory } from "./history";
-import { type Reported, pasteAfter, reportedState } from "./reporting";
+import { type Reported, pasteAfter, reportedState, splitComplete } from "./reporting";
 import { type ScreenReading, createScreen } from "./screen";
 import type { PtyProcess, PtySpawn } from "./pty";
 
@@ -73,6 +73,10 @@ export interface TerminalServiceOptions {
   readonly logger: Logger;
   /** The pids whose parent is `pid`; `ps` in production, a list in tests. */
   readonly childrenOf: (pid: number) => Promise<readonly number[]>;
+  /** Every pid under `pid`, for closing; `ps` in production, a list in tests. */
+  readonly descendantsOf: (pid: number) => Promise<readonly number[]>;
+  /** Signals one pid; `process.kill` in production, a recorder in tests. */
+  readonly signal: (pid: number, signal: "SIGTERM" | "SIGKILL") => void;
   /** How long a closing terminal gets before `SIGKILL`. */
   readonly killGraceMs?: number;
 }
@@ -120,7 +124,13 @@ export interface TerminalService {
    * Resolves once the screen has settled after it, so a caller can read the result straight away
    * instead of waiting by hand (SPEC-0009, "agent 操作终端").
    */
-  agentType(sessionId: string, terminalId: TerminalId, text: string, submit?: boolean): Promise<boolean>;
+  agentType(
+    sessionId: string,
+    terminalId: TerminalId,
+    text: string,
+    submit?: boolean,
+    signal?: AbortSignal,
+  ): Promise<boolean>;
   /**
    * Presses one named key: `enter`, `esc`, `ctrl-c`, `ctrl-d`, `tab`, `shift-tab` or an arrow.
    *
@@ -128,12 +138,17 @@ export interface TerminalService {
    * Keys that submit something wait for the screen to settle; arrows do not, so moving around a
    * menu stays quick.
    */
-  agentKey(sessionId: string, terminalId: TerminalId, key: AgentKey): Promise<boolean>;
+  agentKey(sessionId: string, terminalId: TerminalId, key: AgentKey, signal?: AbortSignal): Promise<boolean>;
   /** Waits until the terminal's output has been quiet, or it ended, or the time ran out. */
   agentWait(
     sessionId: string,
     terminalId: TerminalId,
-    options?: { readonly until?: "quiet" | "exited"; readonly quietMs?: number; readonly timeoutMs?: number },
+    options?: {
+      readonly until?: "quiet" | "exited";
+      readonly quietMs?: number;
+      readonly timeoutMs?: number;
+      readonly signal?: AbortSignal;
+    },
   ): Promise<{ readonly quiet: boolean; readonly exited: boolean; readonly exitCode: number | null }>;
   /** Ends a terminal the agent opened. */
   agentClose(sessionId: string, terminalId: TerminalId): Promise<void>;
@@ -141,6 +156,14 @@ export interface TerminalService {
   hasForegroundProcess(terminalId: TerminalId): Promise<boolean>;
   /** Terminals this connection opened or attached to, in the order they were opened. */
   openTerminals(): readonly Terminal[];
+  /**
+   * The running terminals a client may still show.
+   *
+   * @remarks
+   * Its own and the ones agents opened; another window's terminals are not its business
+   * (SPEC-0009, "生命周期").
+   */
+  list(caller: Caller): readonly Terminal[];
   /** Ends every terminal, for host shutdown. */
   closeAll(): Promise<void>;
 }
@@ -184,6 +207,15 @@ const AGENT_QUIET_MAX_MS = 10_000;
 /** How long `agentWait` waits before answering that it is still busy. */
 const AGENT_WAIT_TIMEOUT_MS = 30_000;
 
+/** How often queued terminal output is flushed, in milliseconds (SPEC-0009, "流控"). */
+const OUTPUT_FLUSH_MS = 16;
+
+/** The most bytes one flush sends; a fast program is paced rather than allowed to fill the socket. */
+const OUTPUT_FLUSH_BYTES = 64 * 1024;
+
+/** The most output held for a terminal before the oldest is dropped. */
+const OUTPUT_QUEUE_MAX = 2 * 1024 * 1024;
+
 /** How still the screen must be before a write counts as settled (SPEC-0009, "agent 操作终端"). */
 const AGENT_SETTLE_QUIET_MS = 120;
 
@@ -214,6 +246,15 @@ interface Running {
   reported: Reported | null;
   /** Whether the program has bracketed paste on, so text can be sent as one paste. */
   pasteEnabled: boolean;
+  /** Output waiting to go out, and how many bytes it is; see `emitOutput`. */
+  queue: string[];
+  queued: number;
+  /** Stops the pending flush, if one is scheduled. */
+  cancelFlush: (() => void) | null;
+  /** Bytes dropped since the last flush, reported once on the screen. */
+  dropped: number;
+  /** The tail of an escape sequence the PTY split across reads (SPEC-0009, "历史与重放"). */
+  acc: string;
   /** Stops the `SIGKILL` escalation of a close under way. */
   cancelKill: (() => void) | null;
   /** Resolves the `close` that is waiting for this terminal, when it is waiting. */
@@ -307,6 +348,177 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
    * @param entry - The terminal.
    * @param exitCode - What its process returned.
    */
+  /** One close per terminal, shared by whoever asks for it (SPEC-0009, "生命周期"). */
+  const closing = new Map<string, Promise<void>>();
+
+  /**
+   * Sends what a terminal wrote, at the pace a window can take.
+   *
+   * @remarks
+   * One chunk per write would let `yes` fill the WebSocket until the server closes the whole
+   * connection, chat included (SPEC-0009, "流控"). Output is queued and flushed every
+   * {@link OUTPUT_FLUSH_MS} up to {@link OUTPUT_FLUSH_BYTES}; past {@link OUTPUT_QUEUE_MAX} the
+   * oldest is dropped and the screen says so, which is honest and keeps the connection alive.
+   *
+   * @sideEffects Queues, schedules a flush, and sends.
+   * @param entry - The terminal.
+   * @param data - What it wrote.
+   */
+  const emitOutput = (entry: Running, data: string): void => {
+    // A program can write megabytes in one go; splitting keeps the flush's byte budget meaningful
+    // and lets the queue drop the oldest without dropping everything.
+    let rest = data;
+    while (rest !== "") {
+      let end = Math.min(rest.length, OUTPUT_FLUSH_BYTES);
+      const last = rest.charCodeAt(end - 1);
+      // Never cut a surrogate pair in half.
+      if (end < rest.length && last >= 0xd800 && last <= 0xdbff) end += 1;
+      const piece = rest.slice(0, end);
+      entry.queue.push(piece);
+      entry.queued += Buffer.byteLength(piece, "utf8");
+      rest = rest.slice(end);
+    }
+    while (entry.queued > OUTPUT_QUEUE_MAX && entry.queue.length > 1) {
+      const old = entry.queue.shift();
+      if (old === undefined) break;
+      entry.queued -= Buffer.byteLength(old, "utf8");
+      entry.dropped += Buffer.byteLength(old, "utf8");
+    }
+    if (entry.cancelFlush !== null) return;
+    entry.cancelFlush = trackedTimeout(
+      options.clock,
+      options.resources,
+      () => {
+        entry.cancelFlush = null;
+        flushOutput(entry);
+      },
+      OUTPUT_FLUSH_MS,
+    );
+  };
+
+  /**
+   * Sends one flush worth of queued output.
+   *
+   * @remarks
+   * A drop is reported once, in the output itself, so a person looking at the screen knows why it
+   * jumped; the bytes themselves are never logged.
+   *
+   * @sideEffects Sends `terminal_output`, and schedules the next flush while output is left.
+   * @param entry - The terminal.
+   */
+  const flushOutput = (entry: Running): void => {
+    let text = "";
+    let bytes = 0;
+    while (entry.queue.length > 0 && bytes < OUTPUT_FLUSH_BYTES) {
+      const chunk = entry.queue.shift();
+      if (chunk === undefined) break;
+      bytes += Buffer.byteLength(chunk, "utf8");
+      text += chunk;
+    }
+    entry.queued -= bytes;
+    if (entry.dropped > 0) {
+      options.logger.warn(
+        { code: "terminal_output_dropped", terminalId: entry.terminal.id },
+        "terminal output dropped",
+      );
+      text = `\r\n\u001b[2m[output dropped: ${String(entry.dropped)} bytes]\u001b[0m\r\n${text}`;
+      entry.dropped = 0;
+    }
+    if (text !== "") tell(entry, { type: "terminal_output", terminalId: entry.terminal.id, data: text });
+    if (entry.queue.length > 0) {
+      entry.cancelFlush = trackedTimeout(
+        options.clock,
+        options.resources,
+        () => {
+          entry.cancelFlush = null;
+          flushOutput(entry);
+        },
+        OUTPUT_FLUSH_MS,
+      );
+    }
+  };
+
+  /**
+   * Ends a terminal once, and waits for it.
+   *
+   * @remarks
+   * The user's tab, the agent's tool and the host's shutdown all come through here: a terminal is
+   * signalled once, the escalation is cancelled when it exits, and a second ask waits for the
+   * first instead of starting another (SPEC-0009, "生命周期").
+   *
+   * @sideEffects Signals the process group, emits `terminal_exited` and `terminal_closed`.
+   * @param entry - The terminal.
+   * @returns A promise that settles when the terminal is gone.
+   */
+  const closeEntry = (entry: Running): Promise<void> => {
+    const started = closing.get(entry.terminal.id);
+    if (started !== undefined) return started;
+    const done = (async () => {
+      if (entry.exited) {
+        finish(entry);
+        return;
+      }
+      // Background jobs live in process groups of their own, so the tree is walked, not the group.
+      const descendants = await options.descendantsOf(entry.pty.pid).catch(() => []);
+      /**
+       * Signals the shell and everything under it.
+       *
+       * @remarks
+       * The children are signalled first: once the shell dies they are reparented, and the list
+       * that was read is the only record of them.
+       *
+       * @sideEffects Signals processes.
+       * @param signal - Which signal.
+       */
+      const signalAll = (signal: "SIGTERM" | "SIGKILL"): void => {
+        for (const pid of descendants) {
+          try {
+            options.signal(pid, signal);
+          } catch {
+            // Already gone; the rest still get theirs.
+          }
+        }
+        entry.pty.kill(signal);
+      };
+      signalAll("SIGTERM");
+      await new Promise<void>((resolve) => {
+        const escalation = trackedTimeout(
+          options.clock,
+          options.resources,
+          () => {
+            signalAll("SIGKILL");
+          },
+          killGraceMs,
+        );
+        // A close cannot hang the command it answers, and an unknown exit is not reported as 0.
+        const giveUp = trackedTimeout(
+          options.clock,
+          options.resources,
+          () => {
+            escalation();
+            settle(entry, null);
+            finish(entry);
+            resolve();
+          },
+          killGraceMs + 1000,
+        );
+        entry.cancelKill = () => {
+          escalation();
+          giveUp();
+        };
+        entry.resolveClose = () => {
+          escalation();
+          giveUp();
+          resolve();
+        };
+      });
+      // Whichever way it ended, closing is what removes the tab and the record.
+      finish(entry);
+    })();
+    closing.set(entry.terminal.id, done);
+    return done;
+  };
+
   /**
    * Waits until the screen has settled after a write.
    *
@@ -318,20 +530,23 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
    * @sideEffects Schedules a polling timer until it ends.
    * @param entry - The terminal.
    * @param from - Its output count when the write happened.
+   * @param signal - Ends the wait when the tool call is stopped.
    * @returns Whether the screen settled.
    */
-  const settleAfter = (entry: Running, from: number): Promise<boolean> =>
+  const settleAfter = (entry: Running, from: number, signal?: AbortSignal): Promise<boolean> =>
     new Promise((resolve) => {
       const started = options.clock.now();
       /**
-       * Ends the wait once the screen is still, or the cap is reached.
+       * Ends the wait once the screen is still, or the cap is reached, or the call was stopped.
        *
        * @remarks
        * A program that has printed nothing since the write is not "settled": it has not started.
+       * An aborted call stops looking rather than leaving a timer behind.
        *
        * @sideEffects Resolves the promise, or schedules the next look.
        */
       const check = (): void => {
+        if (signal?.aborted === true) return resolve(false);
         const now = options.clock.now();
         if (entry.exited) return resolve(true);
         if (entry.outputs > from && now - entry.lastOutputAt >= AGENT_SETTLE_QUIET_MS) return resolve(true);
@@ -414,7 +629,7 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
    * @param entry - The terminal.
    * @param exitCode - What its process returned.
    */
-  const settle = (entry: Running, exitCode: number): void => {
+  const settle = (entry: Running, exitCode: number | null): void => {
     if (entry.exited) return;
     entry.exited = true;
     entry.cancelKill?.();
@@ -422,7 +637,8 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
     entry.resolveClose?.();
     entry.resolveClose = null;
     entry.terminal = { ...entry.terminal, state: "exited", exitCode };
-    tell(entry, { type: "terminal_exited", terminalId: entry.terminal.id, exitCode });
+    // -1 is "never saw it exit": a close that gave up must not report a real-looking 0.
+    tell(entry, { type: "terminal_exited", terminalId: entry.terminal.id, exitCode: exitCode ?? -1 });
   };
 
   /**
@@ -436,6 +652,7 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
    * @param entry - The terminal.
    */
   const finish = (entry: Running): void => {
+    if (!running.has(entry.terminal.id)) return;
     running.delete(entry.terminal.id);
     owners.delete(entry.terminal.id);
     tell(entry, { type: "terminal_closed", terminalId: entry.terminal.id });
@@ -466,10 +683,12 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
       const ofContainer = [...running.values()].filter((entry) => entry.terminal.containerId === input.containerId);
       // Two budgets: the person's four, and the agents' six, counted apart so an agent cannot
       // use up the tabs someone else is working in.
-      const agents = ofContainer.filter((entry) => entry.terminal.origin === "agent").length;
+      // Only running terminals count: a tab kept open after its program ended is not a slot.
+      const live = ofContainer.filter((entry) => !entry.exited);
+      const agents = live.filter((entry) => entry.terminal.origin === "agent").length;
       if (input.origin === "agent") {
         if (agents >= AGENT_TERMINALS_PER_CONTAINER) throw new CommandError("terminal_limit");
-      } else if (ofContainer.length - agents >= TERMINAL_MAX_PER_CONTAINER) {
+      } else if (live.length - agents >= TERMINAL_MAX_PER_CONTAINER) {
         throw new CommandError("terminal_limit");
       }
       const id = `term_${randomBytes(8).toString("hex")}`;
@@ -482,9 +701,10 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
           rows: input.rows,
           env: options.env,
         });
-      } catch (error) {
+      } catch {
         options.logger.warn({ code: "terminal_spawn_failed" }, "terminal failed to start");
-        throw new CommandError("terminal_spawn_failed", { cause: String(error) });
+        // No cause: the message may carry paths, and the code is all a caller needs.
+        throw new CommandError("terminal_spawn_failed");
       }
       const entry: Running = {
         terminal: {
@@ -509,6 +729,11 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
         recentWrites: [],
         reported: null,
         pasteEnabled: false,
+        queue: [],
+        queued: 0,
+        cancelFlush: null,
+        dropped: 0,
+        acc: "",
         cancelKill: null,
         resolveClose: null,
         exited: false,
@@ -516,17 +741,22 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
       running.set(id, entry);
       owners.set(id, input.caller.clientId);
       pty.onData((data) => {
-        entry.history.push(data);
-        entry.screen.write(data);
-        entry.pasteEnabled = pasteAfter(data, entry.pasteEnabled);
-        entry.reported = reportedState(data) ?? entry.reported;
+        // Join what the last read held back: a mode change or a query can be split anywhere.
+        const { complete, rest } = splitComplete(entry.acc + data);
+        entry.acc = rest;
+        if (complete === "") return;
+        entry.history.push(complete);
+        entry.screen.write(complete);
+        entry.pasteEnabled = pasteAfter(complete, entry.pasteEnabled);
+        entry.reported = reportedState(complete) ?? entry.reported;
         entry.lastOutputAt = options.clock.now();
         entry.outputs += 1;
-        tell(entry, { type: "terminal_output", terminalId: id, data });
+        emitOutput(entry, complete);
       });
       pty.onExit(({ exitCode }) => {
+        // The record stays, with its screen and exit code, until the tab is closed: an agent's
+        // last read and wait still have an answer after the program ends (SPEC-0009).
         settle(entry, exitCode);
-        finish(entry);
       });
       tell(entry, {
         type: "terminal_opened",
@@ -556,6 +786,11 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
     write(caller, terminalId, data) {
       const entry = mustOwn(caller, terminalId);
       if (entry.exited) throw new CommandError("terminal_not_found");
+      // The schema's limit counts characters; a terminal's budget is bytes, so a page of CJK pastes
+      // would otherwise go through twice as large as allowed (SPEC-0009, "接口与数据").
+      if (Buffer.byteLength(data, "utf8") > AGENT_WRITE_MAX) {
+        throw new CommandError("terminal_write_too_large");
+      }
       entry.pty.write(data);
     },
 
@@ -572,43 +807,11 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
       const entry = running.get(terminalId);
       if (entry === undefined) return;
       if (owners.get(terminalId) !== caller.clientId) throw new CommandError("terminal_not_owner");
+      // An ended terminal's tab still closes; there is nothing to signal.
       if (force !== true && (await this.hasForegroundProcess(terminalId))) {
         throw new CommandError("terminal_has_process");
       }
-      // A shell exits on SIGTERM; a stubborn program gets SIGKILL after the grace period.
-      entry.pty.kill("SIGTERM");
-      await new Promise<void>((resolve) => {
-        const escalation = trackedTimeout(
-          options.clock,
-          options.resources,
-          () => {
-            entry.pty.kill("SIGKILL");
-          },
-          killGraceMs,
-        );
-        // Whatever happens, a close cannot hang the command it answers.
-        const giveUp = trackedTimeout(
-          options.clock,
-          options.resources,
-          () => {
-            escalation();
-            settle(entry, 0);
-            finish(entry);
-            resolve();
-          },
-          killGraceMs + 1000,
-        );
-        entry.cancelKill = () => {
-          escalation();
-          giveUp();
-        };
-        entry.resolveClose = () => {
-          escalation();
-          giveUp();
-          resolve();
-        };
-        if (entry.exited) entry.resolveClose();
-      });
+      await closeEntry(entry);
     },
 
     async agentRead(sessionId, terminalId, lines) {
@@ -621,16 +824,16 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
       };
     },
 
-    async agentType(sessionId, terminalId, text, submit) {
+    async agentType(sessionId, terminalId, text, submit, signal) {
       const entry = mustOwnAgent(sessionId, terminalId);
       const from = entry.outputs;
       // A multi-line prompt typed as a paste stays one paste: the program does not submit at each newline.
       const body = entry.pasteEnabled ? `\u001b[200~${text}\u001b[201~` : text;
       write(entry, submit === true ? `${body}\r` : body);
-      return await settleAfter(entry, from);
+      return await settleAfter(entry, from, signal);
     },
 
-    async agentKey(sessionId, terminalId, key) {
+    async agentKey(sessionId, terminalId, key, signal) {
       const entry = mustOwnAgent(sessionId, terminalId);
       const bytes = AGENT_KEYS[key];
       // A key outside the table is a malformed request; the channel's schema refuses it first.
@@ -639,7 +842,7 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
       write(entry, bytes);
       // Moving inside a menu changes little; submitting a choice redraws everything after it.
       if (key === "up" || key === "down" || key === "left" || key === "right") return true;
-      return await settleAfter(entry, from);
+      return await settleAfter(entry, from, signal);
     },
 
     async agentWait(sessionId, terminalId, options2 = {}) {
@@ -648,10 +851,10 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
       const quietMs = Math.min(Math.max(options2.quietMs ?? AGENT_QUIET_MS, 100), AGENT_QUIET_MAX_MS);
       const timeoutMs = Math.max(options2.timeoutMs ?? AGENT_WAIT_TIMEOUT_MS, quietMs);
       const started = options.clock.now();
-      // Silence before anything was printed is not quiet: a program that has not drawn yet is
-      // still starting (measured with `mc --code`: 6.7 s before its first screen). Anything it
-      // printed before the wait counts: the question is whether the screen has settled since.
-      const from = 0;
+      // Quiet means "printed something since this wait began, then stopped": a shell prompt from
+      // before the wait proves nothing, which is exactly the `mc --code` trap — the command is
+      // submitted, the first screen has not arrived, and the old prompt makes it look settled.
+      const from = entry.outputs;
       return new Promise((resolve) => {
         /**
          * Decides whether the wait is over.
@@ -663,6 +866,11 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
          * @sideEffects Resolves the wait, and schedules the next look when it is not over.
          */
         const check = (): void => {
+          // A stopped tool call stops waiting: nothing is left polling for it.
+          if (options2.signal?.aborted === true) {
+            resolve({ quiet: false, exited: false, exitCode: null });
+            return;
+          }
           const now = options.clock.now();
           if (entry.exited) {
             resolve({ quiet: false, exited: true, exitCode: entry.terminal.exitCode });
@@ -684,11 +892,7 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
     },
 
     async agentClose(sessionId, terminalId) {
-      const entry = mustOwnAgent(sessionId, terminalId);
-      entry.pty.kill("SIGTERM");
-      if (!entry.exited) {
-        trackedTimeout(options.clock, options.resources, () => entry.pty.kill("SIGKILL"), killGraceMs);
-      }
+      await closeEntry(mustOwnAgent(sessionId, terminalId));
     },
 
     async hasForegroundProcess(terminalId) {
@@ -703,21 +907,20 @@ export function createTerminalService(options: TerminalServiceOptions): Terminal
       }
     },
 
+    list(caller) {
+      return [...running.values()]
+        .filter((entry) => !entry.exited)
+        .filter((entry) => entry.terminal.origin === "agent" || owners.get(entry.terminal.id) === caller.clientId)
+        .map((entry) => entry.terminal);
+    },
+
     openTerminals() {
       return [...running.values()].filter((entry) => !entry.exited).map((entry) => entry.terminal);
     },
 
     async closeAll() {
-      // The host is going away; a second SIGTERM is useless, so the grace period is not awaited.
-      // Deleting the current entry while iterating a Map is safe: the iterator skips it.
-      for (const entry of running.values()) {
-        try {
-          entry.pty.kill("SIGTERM");
-        } catch {
-          // Already gone; nothing to end.
-        }
-        finish(entry);
-      }
+      // The host is going away, but a program that ignores SIGTERM still gets its SIGKILL.
+      await Promise.all([...running.values()].map(async (entry) => closeEntry(entry)));
     },
   };
 }

@@ -47,10 +47,10 @@ test("@package opens a terminal in the installed app and runs a shell in it (SPE
     await page.getByRole("button", { name: "新建对话" }).click();
     // The new chat becomes the shown session a moment later, which would take the viewer tab over.
     await page.waitForTimeout(2000);
-    await page.getByRole("button", { name: "新建（⌘T 为新会话）" }).click();
+    await page.getByRole("button", { name: "新建", exact: true }).click();
     await page.getByRole("menuitem", { name: "新终端" }).click();
     // The chat's session may take the area over once it starts; the terminal's tab shows it again.
-    await page.getByRole("tab", { name: "终端" }).click();
+    await page.getByRole("tab", { name: /终端/ }).click();
     await page.waitForTimeout(1500);
     const screen = page.locator(".xterm-rows");
     await expect(screen).toBeVisible();

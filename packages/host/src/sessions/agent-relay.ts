@@ -128,12 +128,23 @@ export interface AgentHost {
       readonly exitCode: number | null;
       readonly reported: { readonly state: string; readonly app: string | null } | null;
     }>;
-    type(sessionId: string, terminalId: string, text: string, submit: boolean | undefined): Promise<boolean>;
-    key(sessionId: string, terminalId: string, key: AgentKey): Promise<boolean>;
+    type(
+      sessionId: string,
+      terminalId: string,
+      text: string,
+      submit: boolean | undefined,
+      signal?: AbortSignal,
+    ): Promise<boolean>;
+    key(sessionId: string, terminalId: string, key: AgentKey, signal?: AbortSignal): Promise<boolean>;
     wait(
       sessionId: string,
       terminalId: string,
-      options: { readonly until?: "quiet" | "exited"; readonly quietMs?: number; readonly timeoutMs?: number },
+      options: {
+        readonly until?: "quiet" | "exited";
+        readonly quietMs?: number;
+        readonly timeoutMs?: number;
+        readonly signal?: AbortSignal;
+      },
     ): Promise<{ readonly quiet: boolean; readonly exited: boolean; readonly exitCode: number | null }>;
     close(sessionId: string, terminalId: string): Promise<void>;
   };
@@ -266,6 +277,66 @@ export interface AgentRelay {
  *
  * @remarks
  * Thrown by an operation and caught where the call is answered, so each check can stop it.
+ *
+ * @sideEffects none
+ */
+/**
+ * The channel's code for a terminal refusal, if it is one.
+ *
+ * @remarks
+ * Listed one by one rather than cast: the channel's codes are the contract, and a new terminal
+ * error must be added here on purpose (SPEC-0009, "agent 操作终端").
+ *
+ * @sideEffects none
+ * @param code - The protocol error code.
+ * @returns It, when the channel has a word for it; otherwise `null`.
+ */
+function terminalCode(code: string): AgentErrorCode | null {
+  switch (code) {
+    case "terminal_not_found":
+    case "terminal_not_owner":
+    case "terminal_limit":
+    case "terminal_cwd_invalid":
+    case "terminal_spawn_failed":
+    case "terminal_write_too_large":
+    case "terminal_write_too_fast":
+    case "terminal_has_process":
+      return code;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Says why a call failed, in the channel's terms.
+ *
+ * @remarks
+ * A terminal refusal is a normal answer, not a crash: the model must tell "not yours" from "gone"
+ * from "too fast" to recover (SPEC-0009, "agent 操作终端"). Anything else is logged and answered
+ * generically, as before.
+ *
+ * @sideEffects Logs an unexpected failure.
+ * @param error - What was thrown.
+ * @param op - The call, for the log.
+ * @param sessionId - Who asked, for the log.
+ * @param logger - The host's log.
+ * @returns The failure to answer with.
+ */
+function failureOf(error: unknown, op: string, sessionId: string, logger: Logger): AgentFailure {
+  if (error instanceof AgentFailure) return error;
+  if (error instanceof CommandError) {
+    const code = terminalCode(error.code);
+    if (code !== null) return new AgentFailure(code, error.params ?? {});
+  }
+  logger.error({ sessionId, op, err: error }, "agent call failed");
+  return new AgentFailure("agent_failed");
+}
+
+/**
+ * A call that failed, in the channel's terms (ADR-0013, point 9).
+ *
+ * @remarks
+ * The host never writes model-facing prose; the extension words the code.
  *
  * @sideEffects none
  */
@@ -509,6 +580,8 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
   const { catalog, clock } = host;
   /** Calls under way, by session, process and request id (ADR-0013, point 4). */
   const calls = new Map<string, Promise<void>>();
+  /** The call under way per session and id, so a stopped tool call stops its host work (ADR-0013, 6). */
+  const inFlight = new Map<string, AbortController>();
   /**
    * Calls answered, by session and process: their ids, and the latest replies, to send again for a
    * request repeated (ADR-0013, point 4).
@@ -1728,6 +1801,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
    * @param sessionId - The caller.
    * @param epoch - Its process.
    * @param request - The call.
+   * @param signal - Ends the work when the tool call is stopped.
    * @returns The result, or `null` for no answer.
    * @throws {AgentFailure} As the operation's.
    */
@@ -1735,6 +1809,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
     sessionId: string,
     epoch: number,
     request: Extract<AgentRequest, { kind: "call" }>,
+    signal?: AbortSignal,
   ): Promise<unknown> => {
     if (isStudyCall(request)) {
       const answered = (await host.study?.(sessionId, request)) ?? { ok: false, code: "study_not_allowed" };
@@ -1771,12 +1846,13 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
           request.args.terminalId,
           request.args.text,
           request.args.submit,
+          signal,
         );
         return { settled };
       }
       case "key_terminal": {
         if (host.terminals === undefined) throw new AgentFailure("agent_bad_request");
-        const settled = await host.terminals.key(sessionId, request.args.terminalId, request.args.key);
+        const settled = await host.terminals.key(sessionId, request.args.terminalId, request.args.key, signal);
         return { settled };
       }
       case "wait_terminal": {
@@ -1785,6 +1861,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
           ...(request.args.until === undefined ? {} : { until: request.args.until }),
           ...(request.args.quietMs === undefined ? {} : { quietMs: request.args.quietMs }),
           ...(request.args.timeoutMs === undefined ? {} : { timeoutMs: request.args.timeoutMs }),
+          ...(signal === undefined ? {} : { signal }),
         });
       }
       case "close_terminal": {
@@ -1853,6 +1930,8 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
         return;
       case "cancel": {
         const id = request.args.id;
+        // The tool stopped waiting: stop the host's work too, so no timer keeps polling for it.
+        inFlight.get(`${sessionId}#${id}`)?.abort();
         // An `ask_user` call the extension no longer waits on (SPEC-0003, "生命周期").
         host.controller(sessionId)?.dropQuestion(id);
         const question = questions.get(sessionId)?.get(id);
@@ -1906,16 +1985,14 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
       const startedAt = clock.now();
       const work = (async () => {
         let reply: unknown;
+        const stopping = new AbortController();
+        inFlight.set(`${sessionId}#${request.id}`, stopping);
         try {
-          const result = await answer(sessionId, epoch, request);
+          const result = await answer(sessionId, epoch, request, stopping.signal);
           if (result === null) return;
           reply = { v: 1, id: request.id, ok: true, result };
         } catch (error) {
-          const failure =
-            error instanceof AgentFailure
-              ? error
-              : (host.logger.error({ sessionId, op: request.op, err: error }, "agent call failed"),
-                new AgentFailure("agent_failed"));
+          const failure = failureOf(error, request.op, sessionId, host.logger);
           reply = {
             v: 1,
             id: request.id,
@@ -1924,6 +2001,7 @@ export function createAgentRelay(host: AgentHost): AgentRelay {
             ...(Object.keys(failure.params).length === 0 ? {} : { params: failure.params }),
           };
         } finally {
+          inFlight.delete(`${sessionId}#${request.id}`);
           calls.delete(key);
           remember(process, request.id, reply);
         }

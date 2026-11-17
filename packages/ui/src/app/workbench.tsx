@@ -135,6 +135,7 @@ function fireAndForget(command: Promise<unknown>): void {
  * @param area - The task area's state: ⌘N and ⌘T leave it, and the keys for tabs do nothing while it shows, as it
  * has its own.
  * @param learning - The study store, whose pages the keys leave as the new-workspace page.
+ * @param closeTerminal - Closes a terminal through the one path that asks about a running program.
  */
 function useTabShortcuts(
   client: AtriumClient,
@@ -142,6 +143,7 @@ function useTabShortcuts(
   views: StoreApi<WorkspaceViews>,
   area: StoreApi<TaskArea>,
   learning: StoreApi<LearningState>,
+  closeTerminal: (terminalId: string) => void,
 ): void {
   // ⌘W and ⌘, the main process took, as with the focus in a visual (SPEC-0007, "键盘").
   useEffect(() => playMenuShortcuts(desktopBridge()?.onShortcut), []);
@@ -185,9 +187,12 @@ function useTabShortcuts(
       else if (onPage) return;
       else if (!event.shiftKey && key === "w" && homeShown) {
         // The home tab cannot close.
-      } else if (!event.shiftKey && key === "w" && container !== null && view?.active != null)
-        closing = closeViewer(views, container, view.active, open);
-      else if (!event.shiftKey && key === "w" && tabs?.active != null) fireAndForget(client.closeTab(tabs.active));
+      } else if (!event.shiftKey && key === "w" && container !== null && view?.active != null) {
+        // A terminal closes like its tab's × does: through the one path that asks about a program
+        // still running, and that ends the PTY rather than only its tab (SPEC-0009).
+        if (view.active.startsWith("terminal:")) closeTerminal(view.active.slice("terminal:".length));
+        else closing = closeViewer(views, container, view.active, open);
+      } else if (!event.shiftKey && key === "w" && tabs?.active != null) fireAndForget(client.closeTab(tabs.active));
       else if (!event.shiftKey && /^[1-9]$/.test(event.key)) goTo = ordered[Number(event.key) - 1];
       else if (event.shiftKey && event.code === "BracketLeft") goTo = ordered[homeAt - 1];
       else if (event.shiftKey && event.code === "BracketRight") goTo = ordered[homeAt + 1];
@@ -206,7 +211,7 @@ function useTabShortcuts(
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [client, pages, views, learning, area]);
+  }, [client, pages, views, learning, area, closeTerminal]);
 }
 
 /**
@@ -609,8 +614,8 @@ function MainWindow({
   /** What is being created right now, shown as a waiting tab until the host answers. */
   const [pending, setPending] = useState<"session" | "terminal" | null>(null);
   const terminals = useStore(client.terminals, (state) => state.terminals);
-  /** Terminals an agent opened whose tab this window already made; closing one does not bring it back. */
-  const agentTabsOpened = useRef(new Set<string>());
+  /** Terminals this window already made a tab for; closing one ends it, so it never comes back. */
+  const terminalTabsOpened = useRef(new Set<string>());
   const [views] = useState(() => createWorkspaceViews(localStorage));
   const [area] = useState(createTaskArea);
   const tasksOpen = useStore(area, (state) => state.open);
@@ -626,11 +631,16 @@ function MainWindow({
   );
   useDraftCleanup(index, client);
   useEffect(() => {
-    // An agent's terminal appears as a tab of its own container, wherever this window happens to
-    // be (SPEC-0009): the host broadcasts it, and nothing else would draw it.
+    // Tabs live in this window; a reload lost them while the PTYs kept running.
+    void client.restoreTerminals().catch(() => undefined);
+  }, [client]);
+  useEffect(() => {
+    // Every running terminal gets a tab of its own container, wherever this window happens to be:
+    // an agent's is broadcast with nothing else to draw it, and a reloaded window finds its own
+    // again from `terminal_list` (SPEC-0009, "生命周期").
     for (const terminal of terminals) {
-      if (terminal.origin !== "agent" || agentTabsOpened.current.has(terminal.id)) continue;
-      agentTabsOpened.current.add(terminal.id);
+      if (terminalTabsOpened.current.has(terminal.id)) continue;
+      terminalTabsOpened.current.add(terminal.id);
       openTerminalTab(views, terminal.containerId, terminal.id);
     }
   });
@@ -657,12 +667,6 @@ function MainWindow({
     return () => window.removeEventListener("focus", onFocus);
   }, [client]);
 
-  useTabShortcuts(client, pages, views, area, learning);
-  useSessionShows(views, learning, container, sessionId);
-  usePaneShortcuts(client, pages, panes);
-  // On the new-workspace page or a learning page, under a viewer tab or a direction's home, no session shows.
-  const sessionShown = pageProject === null && learningPage === null && viewer === null && !homeShown;
-  useSeenAttention(client, index, sessionShown ? sessionId : null);
   /**
    * Opens a terminal in this container and shows it as a tab.
    *
@@ -728,6 +732,13 @@ function MainWindow({
     };
     attempt(false);
   };
+
+  useTabShortcuts(client, pages, views, area, learning, closeTerminalHere);
+  useSessionShows(views, learning, container, sessionId);
+  usePaneShortcuts(client, pages, panes);
+  // On the new-workspace page or a learning page, under a viewer tab or a direction's home, no session shows.
+  const sessionShown = pageProject === null && learningPage === null && viewer === null && !homeShown;
+  useSeenAttention(client, index, sessionShown ? sessionId : null);
   /**
    * Leaves the new-workspace page, the learning pages and the task area.
    *
