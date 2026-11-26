@@ -1,0 +1,50 @@
+[
+  {
+    "file": "packages/pi/src/search/extension.ts",
+    "from": "if (!existing.has(tool.name)) pi.registerTool(tool);",
+    "to": "pi.registerTool(tool);",
+    "test": "packages/pi/src/search/extension.test.ts",
+    "name": "yields existing tool names on session_start when web_search already present",
+    "project": "unit"
+  },
+  {
+    "file": "packages/pi/src/search/extension.ts",
+    "from": "if (!existing.has(tool.name)) pi.registerTool(tool);",
+    "to": "pi.registerTool(tool);",
+    "test": "packages/pi/src/contract/search.pi.test.ts",
+    "name": "yields web_search to a user extension loaded alongside Atrium while keeping web_fetch",
+    "project": "pi"
+  },
+  {
+    "file": "packages/pi/src/search/extension.ts",
+    "from": "if (registered) return;",
+    "to": "",
+    "test": "packages/pi/src/search/extension.test.ts",
+    "name": "registers at most once across repeated session_start events",
+    "project": "unit"
+  },
+  {
+    "file": "packages/pi/src/search/extension.ts",
+    "from": "registered = true;",
+    "to": "",
+    "test": "packages/pi/src/search/extension.test.ts",
+    "name": "registers at most once across repeated session_start events",
+    "project": "unit"
+  },
+  {
+    "file": "packages/pi/src/search/extension.ts",
+    "from": "pi.on(\"session_start\", () => {\n    if (registered) return;\n    registered = true;\n    const existing = new Set(pi.getAllTools().map((tool) => tool.name));\n    for (const tool of tools) {\n      if (!existing.has(tool.name)) pi.registerTool(tool);\n    }\n  });",
+    "to": "for (const tool of tools) pi.registerTool(tool);",
+    "test": "packages/pi/src/search/extension.test.ts",
+    "name": "registers web_search and web_fetch on session_start, not at load time",
+    "project": "unit"
+  },
+  {
+    "file": "packages/pi/src/search/extension.ts",
+    "from": "pi.on(\"session_start\", () => {\n    if (registered) return;\n    registered = true;\n    const existing = new Set(pi.getAllTools().map((tool) => tool.name));\n    for (const tool of tools) {\n      if (!existing.has(tool.name)) pi.registerTool(tool);\n    }\n  });",
+    "to": "for (const tool of tools) pi.registerTool(tool);",
+    "test": "packages/pi/src/contract/search.pi.test.ts",
+    "name": "yields web_search to a user extension loaded alongside Atrium while keeping web_fetch",
+    "project": "pi"
+  }
+]

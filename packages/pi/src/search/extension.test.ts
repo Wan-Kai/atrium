@@ -110,7 +110,48 @@ function stand(
 }
 
 /**
- * Loads the extension into a stand-in for pi and returns its tools.
+ * Attaches the extension to a stand-in for pi without starting the session yet.
+ *
+ * @sideEffects none
+ * @param base - Where DeepSeek's APIs are, for the test.
+ * @param key - The search key the process environment gives, or `null` for none.
+ * @param existing - Tool names pi already knows about when `session_start` runs.
+ * @returns The registered tools map, register call log, and a trigger for `session_start`.
+ */
+function attach(
+  base: string,
+  key: string | null = "k",
+  existing: () => readonly string[] = () => [],
+): { readonly tools: Map<string, Tool>; readonly registered: string[]; readonly start: () => void } {
+  const tools = new Map<string, Tool>();
+  const registered: string[] = [];
+  const handlers: (() => void)[] = [];
+  atriumSearch(
+    {
+      registerTool: (tool) => {
+        registered.push(tool.name);
+        tools.set(tool.name, tool);
+      },
+      getAllTools: () => [...existing(), ...tools.keys()].map((name) => ({ name })),
+      on: (_event, handler) => handlers.push(handler),
+    },
+    {
+      search: `${base}/search`,
+      fetch: `${base}/fetch`,
+      environment: key === null ? { DEEPSEEK_API_KEY: "sk-chat" } : { DEEPSEEK_SEARCH_API_KEY: key },
+    },
+  );
+  return {
+    tools,
+    registered,
+    start: () => {
+      for (const handler of handlers) handler();
+    },
+  };
+}
+
+/**
+ * Loads the extension into a stand-in for pi, starts the session, and returns its tools.
  *
  * @sideEffects none
  * @param base - Where DeepSeek's APIs are, for the test.
@@ -118,16 +159,9 @@ function stand(
  * @returns The tools by name.
  */
 function load(base: string, key: string | null = "k"): Map<string, Tool> {
-  const tools = new Map<string, Tool>();
-  atriumSearch(
-    { registerTool: (tool) => tools.set(tool.name, tool) },
-    {
-      search: `${base}/search`,
-      fetch: `${base}/fetch`,
-      environment: key === null ? { DEEPSEEK_API_KEY: "sk-chat" } : { DEEPSEEK_SEARCH_API_KEY: key },
-    },
-  );
-  return tools;
+  const loaded = attach(base, key);
+  loaded.start();
+  return loaded.tools;
 }
 
 /**
@@ -191,14 +225,58 @@ describe("atriumSearch", () => {
     expectTypeOf<ExtensionAPI>().toExtend<Parameters<typeof atrium>[0]>();
   });
 
-  it("registers web_search and web_fetch with schemas that require their one argument", () => {
-    const tools = load("http://127.0.0.1:9");
+  it("registers web_search and web_fetch on session_start, not at load time, with schemas that require their one argument", () => {
+    const loaded = attach("http://127.0.0.1:9");
 
-    expect([...tools.keys()]).toStrictEqual(["web_search", "web_fetch"]);
-    expect(tools.get("web_search")?.parameters).toMatchObject({ required: ["query"], additionalProperties: false });
-    expect(tools.get("web_fetch")?.parameters).toMatchObject({ required: ["url"], additionalProperties: false });
-    expect(tools.get("web_search")?.description).toContain("not from the user");
-    expect(tools.get("web_fetch")?.description).toContain("not from the user");
+    expect([...loaded.tools.keys()]).toStrictEqual([]);
+
+    loaded.start();
+
+    expect([...loaded.tools.keys()]).toStrictEqual(["web_search", "web_fetch"]);
+    expect(loaded.tools.get("web_search")?.parameters).toMatchObject({
+      required: ["query"],
+      additionalProperties: false,
+    });
+    expect(loaded.tools.get("web_fetch")?.parameters).toMatchObject({
+      required: ["url"],
+      additionalProperties: false,
+    });
+    expect(loaded.tools.get("web_search")?.description).toContain("not from the user");
+    expect(loaded.tools.get("web_fetch")?.description).toContain("not from the user");
+  });
+
+  it.each([
+    ["web_search already present", ["web_search"], ["web_fetch"]],
+    ["web_fetch already present", ["web_fetch"], ["web_search"]],
+    ["both already present", ["web_search", "web_fetch"], []],
+  ])("yields existing tool names on session_start when %s", (_label, present, expected) => {
+    const loaded = attach("http://127.0.0.1:9", "k", () => present);
+
+    loaded.start();
+
+    expect([...loaded.tools.keys()]).toStrictEqual(expected);
+  });
+
+  it("registers at most once across repeated session_start events", () => {
+    const registered: string[] = [];
+    const handlers: (() => void)[] = [];
+    atriumSearch(
+      {
+        registerTool: (tool) => registered.push(tool.name),
+        // Even if pi hides them (for example under --tools), a second session_start must not register again.
+        getAllTools: () => [],
+        on: (_event, handler) => handlers.push(handler),
+      },
+      { search: "http://127.0.0.1:9/search", fetch: "http://127.0.0.1:9/fetch", environment: {} },
+    );
+
+    expect(handlers).toHaveLength(1);
+    expect(registered).toStrictEqual([]);
+
+    for (const handler of handlers) handler();
+    for (const handler of handlers) handler();
+
+    expect(registered).toStrictEqual(["web_search", "web_fetch"]);
   });
 
   it("searches with the search key, and gives the model the summaries", async () => {
