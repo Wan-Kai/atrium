@@ -45,6 +45,8 @@ interface SearchTool {
 /** The part of pi's extension API the search tools use; its test checks pi's `ExtensionAPI` fits it. */
 export interface SearchApi {
   registerTool(tool: SearchTool): void;
+  getAllTools(): readonly { readonly name: string }[];
+  on(event: "session_start", handler: () => void): unknown;
 }
 
 /** Where the two tools ask and which environment holds the key; tests alone change them. */
@@ -246,52 +248,69 @@ async function fetchPage(
  *
  * @remarks
  * pi loads this, with Fast, the plan query and the child-conversation tools, in the pi processes
- * Atrium starts (ADR-0014). The key is `DEEPSEEK_SEARCH_API_KEY`, from the `env` of pi's `deepseek` credential or the
- * process environment, read on each call and kept apart from the chat's key; without one a call fails with `no_key`. Nothing is reported to the host, written or logged.
+ * Atrium starts (ADR-0014). Registration waits for `session_start` and yields per tool name when
+ * another extension already registered it, so user extensions (such as `pi-web-access`) do not
+ * conflict with Atrium at load time (ADR-0014, point 7). The key is `DEEPSEEK_SEARCH_API_KEY`,
+ * from the `env` of pi's `deepseek` credential or the process environment, read on each call and
+ * kept apart from the chat's key; without one a call fails with `no_key`. Nothing is reported to
+ * the host, written or logged.
  *
- * @sideEffects Registers two tools with pi; each call asks pi for credentials and makes one request.
+ * @sideEffects Registers a `session_start` hook that registers up to two tools with pi; each call
+ *   asks pi for credentials and makes one request.
  * @param pi - pi's extension API.
  * @param deps - Where the tools ask and the environment: DeepSeek's and the process's, which tests alone
  *   change. Atrium's one extension calls this with pi's API only, so nothing pi passes can change them.
  */
 export default function atriumSearch(pi: SearchApi, deps: SearchDeps = DEFAULT_DEPS): void {
-  pi.registerTool({
-    name: "web_search",
-    label: "Search the web",
-    description: `Search the web and get the top results: title, address, site, date and a summary of each. Use it for recent or outside facts you cannot get from the files. Read a page in full with web_fetch. The query takes operators: site:example.com, -site:example.com, "exact phrase", -word, lang:zh,en, after:2026-01-01, before:2026-06-01. ${WEB_RULES}`,
-    parameters: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          minLength: 1,
-          maxLength: 128,
-          description: "What to search for, at most 128 characters.",
+  const tools: readonly SearchTool[] = [
+    {
+      name: "web_search",
+      label: "Search the web",
+      description: `Search the web and get the top results: title, address, site, date and a summary of each. Use it for recent or outside facts you cannot get from the files. Read a page in full with web_fetch. The query takes operators: site:example.com, -site:example.com, "exact phrase", -word, lang:zh,en, after:2026-01-01, before:2026-06-01. ${WEB_RULES}`,
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            minLength: 1,
+            maxLength: 128,
+            description: "What to search for, at most 128 characters.",
+          },
+          count: { type: "integer", minimum: 1, maximum: 50, description: "How many results. Default 10." },
         },
-        count: { type: "integer", minimum: 1, maximum: 50, description: "How many results. Default 10." },
+        required: ["query"],
+        additionalProperties: false,
       },
-      required: ["query"],
-      additionalProperties: false,
+      execute: (_id, params, signal, _onUpdate, ctx) => search(deps, params, signal, ctx),
     },
-    execute: (_id, params, signal, _onUpdate, ctx) => search(deps, params, signal, ctx),
-  });
-  pi.registerTool({
-    name: "web_fetch",
-    label: "Fetch a web page",
-    description: `Fetch one web page and get its content as Markdown. Long pages are cut. ${WEB_RULES}`,
-    parameters: {
-      type: "object",
-      properties: {
-        url: {
-          type: "string",
-          minLength: 1,
-          maxLength: URL_LIMIT,
-          description: "The page's http or https address, without a user name or password.",
+    {
+      name: "web_fetch",
+      label: "Fetch a web page",
+      description: `Fetch one web page and get its content as Markdown. Long pages are cut. ${WEB_RULES}`,
+      parameters: {
+        type: "object",
+        properties: {
+          url: {
+            type: "string",
+            minLength: 1,
+            maxLength: URL_LIMIT,
+            description: "The page's http or https address, without a user name or password.",
+          },
         },
+        required: ["url"],
+        additionalProperties: false,
       },
-      required: ["url"],
-      additionalProperties: false,
+      execute: (_id, params, signal, _onUpdate, ctx) => fetchPage(deps, params, signal, ctx),
     },
-    execute: (_id, params, signal, _onUpdate, ctx) => fetchPage(deps, params, signal, ctx),
+  ];
+  let registered = false;
+
+  pi.on("session_start", () => {
+    if (registered) return;
+    registered = true;
+    const existing = new Set(pi.getAllTools().map((tool) => tool.name));
+    for (const tool of tools) {
+      if (!existing.has(tool.name)) pi.registerTool(tool);
+    }
   });
 }

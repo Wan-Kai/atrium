@@ -443,26 +443,29 @@ describe("atriumPlan", () => {
     ]);
   });
 
-  it("registers Fast's switch and hook, the plan query and the child conversations' command, tools and flag, the web tools, the visuals' flag and prompt hook, and study mode's command, flag and hooks but no tools, from Atrium's one extension", () => {
+  it("registers Fast's switch and hook, the plan query and the child conversations' command, tools and flag, the web tools' session_start hook, the visuals' flag and prompt hook, and study mode's command, flag and hooks without load-time web or study tools, from Atrium's one extension", () => {
     const commands: string[] = [];
     const hooks: string[] = [];
     const tools: string[] = [];
     const flags: string[] = [];
+    const handlers: [string, () => void][] = [];
 
     atrium({
       registerCommand: (name) => commands.push(name),
-      on: (event) => {
+      on: (event, handler) => {
         hooks.push(event);
+        handlers.push([event, handler as () => void]);
         return () => undefined;
       },
       sendMessage: () => undefined,
       appendEntry: () => undefined,
       registerTool: (tool) => tools.push(tool.name),
+      getAllTools: () => tools.map((name) => ({ name })),
       registerFlag: (name) => flags.push(name),
       getFlag: () => undefined,
     });
 
-    expect([commands, hooks, tools.length, tools.slice(-2), flags]).toStrictEqual([
+    expect([commands, hooks, tools.length, flags]).toStrictEqual([
       ["atrium-fast", "atrium-plan", "atrium-agent", "atrium-task", "atrium-edit", "atrium-study"],
       [
         "before_provider_request",
@@ -474,16 +477,21 @@ describe("atriumPlan", () => {
         // The path guard's and the git guard's (SPEC-0006), after the child conversations' own.
         "tool_call",
         "tool_call",
+        // The web tools wait for session_start so they yield to user extensions (ADR-0014, point 7).
+        "session_start",
         "before_agent_start",
         // Study mode's tools wait for the session to start, and come only with its flag (SPEC-0008, ML2).
         "session_start",
         "before_agent_start",
       ],
-      // The six terminal tools come with every session that is not a sub-conversation (SPEC-0009).
-      18,
-      ["web_search", "web_fetch"],
+      // The six terminal tools come with every session that is not a sub-conversation (SPEC-0009);
+      // web_search and web_fetch wait for session_start (ADR-0014, point 7).
+      16,
       ["atrium-agent", "atrium-task", "atrium-visuals", "atrium-study"],
     ]);
+
+    for (const [, start] of handlers.filter(([event]) => event === "session_start")) start();
+    expect(tools.slice(-2)).toStrictEqual(["web_search", "web_fetch"]);
   });
 
   it("reports nothing for a provider Atrium does not ask", async () => {
